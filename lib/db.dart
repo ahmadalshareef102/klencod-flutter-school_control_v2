@@ -27,7 +27,8 @@ class Db {
   /// القيم الافتراضية لجميع الإعدادات.
   static const defaults = {
     'school': '', 'teacher': '', 'year': '1448هـ',
-    'theme': 'dark', 'calendar': 'hijri', 'hijri_offset': '0',
+    'theme': 'dark', 'font': 'system', 'keypad': '1',
+    'sem1_from': '1', 'sem1_to': '3', 'sem2_from': '4', 'sem2_to': '6', 'calendar': 'hijri', 'hijri_offset': '0',
     'min_percent': '50', 'max_failed_second_round': '2',
     'max_t1_work': '20', 'max_t1_exam': '30',
     'max_t2_work': '20', 'max_t2_exam': '30',

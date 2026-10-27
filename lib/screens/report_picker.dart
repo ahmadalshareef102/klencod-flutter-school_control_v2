@@ -52,7 +52,7 @@ class _ReportPickerState extends State<ReportPicker> {
     final hijri = AppState.hijri.value;
     final lines = <String>[
       'التقرير: ${meta.title}',
-      if (meta.semester) 'الفصل الدراسي: ${semester == 0 ? 'الأول' : 'الثاني'}',
+      if (meta.semester) 'الفصل الدراسي: ${semester == 0 ? 'الأول' : semester == 1 ? 'الثاني' : 'الفصلان معاً'}',
       'الصف: $cls  |  الشعبة: ${sc?.section ?? 'كل الشعب'}',
       if (meta.subject) 'المادة: $subject',
       if (meta.month && sc != null) 'الشهر: ${monthName(sc.month, hijri)}',
@@ -68,9 +68,10 @@ class _ReportPickerState extends State<ReportPicker> {
               Text('الفصل الدراسي', style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 6),
               SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment(value: 0, label: Text('الفصل الأول')),
-                  ButtonSegment(value: 1, label: Text('الفصل الثاني')),
+                segments: [
+                  const ButtonSegment(value: 0, label: Text('الفصل الأول')),
+                  const ButtonSegment(value: 1, label: Text('الفصل الثاني')),
+                  if (meta.both) const ButtonSegment(value: 2, label: Text('الفصلان معاً')),
                 ],
                 selected: {semester},
                 onSelectionChanged: (s) {
@@ -91,6 +92,7 @@ class _ReportPickerState extends State<ReportPicker> {
               ],
               onChanged: (v) {
                 meta = reportMetas.firstWhere((m) => m.kind == v);
+                if (!meta.both && semester == 2) semester = 0;
                 scope = null;
                 setState(() {});
               },

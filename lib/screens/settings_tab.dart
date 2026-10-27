@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../app_info.dart';
 import '../app_state.dart';
 import '../data_io.dart';
 import '../dates.dart';
 import '../db.dart';
 import '../widgets.dart';
+import 'about_screen.dart';
 import 'excel_center.dart';
 import 'rules_screen.dart';
 import 'subjects_screen.dart';
@@ -111,6 +113,19 @@ class _SettingsTabState extends State<SettingsTab> {
     await Db.setSetting('theme', v);
   }
 
+  Future<void> _font() async {
+    final v = await showOptions<String>(context, 'خط التطبيق', const [
+      Opt(Icons.phone_android, 'خط النظام (افتراضي)', 'system',
+          'يطابق الخط المستخدم في هاتفك'),
+      Opt(Icons.font_download_outlined, 'خط Cairo', 'cairo',
+          'خط عربي موحّد على كل الأجهزة'),
+    ]);
+    if (v == null) return;
+    AppState.font.value = v;
+    await Db.setSetting('font', v);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _calendar() async {
     final v = await showOptions<String>(context, 'التقويم', const [
       Opt(Icons.mosque_outlined, 'هجري', 'hijri'),
@@ -210,6 +225,10 @@ class _SettingsTabState extends State<SettingsTab> {
           _tile(Icons.brightness_6, 'المظهر', 'داكن أو فاتح أو حسب النظام', _theme,
               color: Colors.purple),
           const SizedBox(height: 8),
+          _tile(Icons.font_download_outlined, 'الخط',
+              AppState.font.value == 'cairo' ? 'Cairo' : 'خط النظام', _font,
+              color: Colors.indigo),
+          const SizedBox(height: 8),
           _tile(Icons.calendar_month, 'التقويم',
               AppState.hijri.value ? 'هجري (إزاحة ${AppState.hijriOffset})' : 'ميلادي',
               _calendar, color: Colors.teal),
@@ -222,9 +241,11 @@ class _SettingsTabState extends State<SettingsTab> {
           const SizedBox(height: 8),
           _tile(Icons.delete_sweep_outlined, 'حذف كل البيانات', 'الطلاب والدرجات والحضور',
               _wipe, color: Colors.red),
-          const SizedBox(height: 16),
-          Text('الكنترول المدرسي • الإصدار 2.0.0',
-              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 8),
+          _tile(Icons.info_outline, 'عن التطبيق والمطور', 'الإصدار ${AppInfo.version}',
+              () => _go(const AboutScreen()), color: Colors.blueGrey),
+          const SizedBox(height: 12),
+          const DeveloperCard(),
         ]),
       ),
     ]);

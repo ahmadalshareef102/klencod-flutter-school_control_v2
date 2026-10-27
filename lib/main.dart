@@ -12,7 +12,8 @@ Future<void> main() async {
   runApp(const ControlApp());
 }
 
-ThemeData buildTheme(Brightness b) {
+ThemeData buildTheme(Brightness b, String font) {
+  final family = font == 'cairo' ? 'Cairo' : null;
   final dark = b == Brightness.dark;
   final cs = ColorScheme.fromSeed(seedColor: blue, brightness: b);
   final cardColor = dark ? const Color(0xFF162033) : Colors.white;
@@ -20,7 +21,7 @@ ThemeData buildTheme(Brightness b) {
   return ThemeData(
     useMaterial3: true,
     colorScheme: cs,
-    fontFamily: 'Cairo',
+    fontFamily: family,
     scaffoldBackgroundColor: dark ? const Color(0xFF0B1220) : pageBg,
     appBarTheme: AppBarTheme(
       backgroundColor: dark ? const Color(0xFF0B1220) : pageBg,
@@ -46,7 +47,7 @@ ThemeData buildTheme(Brightness b) {
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: dark ? const Color(0xFF111A2C) : Colors.white,
       labelTextStyle: WidgetStatePropertyAll(
-          TextStyle(fontFamily: 'Cairo', fontSize: 11, color: cs.onSurface)),
+          TextStyle(fontFamily: family, fontSize: 11, color: cs.onSurface)),
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: dark ? const Color(0xFF162033) : Colors.white,
@@ -63,17 +64,20 @@ class ControlApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: AppState.themeMode,
-      builder: (_, mode, __) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'الكنترول المدرسي',
-        themeMode: mode,
-        theme: buildTheme(Brightness.light),
-        darkTheme: buildTheme(Brightness.dark),
-        builder: (context, child) => Directionality(
-            textDirection: TextDirection.rtl, child: child ?? const SizedBox()),
-        home: const Shell(),
+    return ValueListenableBuilder<String>(
+      valueListenable: AppState.font,
+      builder: (_, font, __) => ValueListenableBuilder<ThemeMode>(
+        valueListenable: AppState.themeMode,
+        builder: (_, mode, __) => MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'الكنترول المدرسي',
+          themeMode: mode,
+          theme: buildTheme(Brightness.light, font),
+          darkTheme: buildTheme(Brightness.dark, font),
+          builder: (context, child) => Directionality(
+              textDirection: TextDirection.rtl, child: child ?? const SizedBox()),
+          home: const Shell(),
+        ),
       ),
     );
   }

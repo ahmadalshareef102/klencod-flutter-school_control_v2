@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../app_info.dart';
 import '../app_state.dart';
 import '../data_io.dart';
 import '../dates.dart';
 import '../db.dart';
 import '../widgets.dart';
+import 'about_screen.dart';
 import 'attendance_screen.dart';
 import 'committees.dart';
 import 'excel_center.dart';
@@ -231,6 +233,17 @@ class _HomeTabState extends State<HomeTab> {
           ],
         ),
         const SizedBox(height: 12),
+        InkWell(
+          onTap: () => open(context, const AboutScreen()),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'المطور: ${AppInfo.developer} • ${AppInfo.phone}',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ),
       ]),
     );
   }

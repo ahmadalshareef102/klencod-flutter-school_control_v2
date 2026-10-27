@@ -39,6 +39,12 @@ class _RulesScreenState extends State<RulesScreen> {
       ('ml_oral', 'اسم المكوّن الثالث'),
       ('ml_written', 'اسم المكوّن الرابع'),
     ]),
+    ('نطاق أشهر كل فصل (رقم الشهر 1-12)', [
+      ('sem1_from', 'الفصل الأول: من شهر'),
+      ('sem1_to', 'الفصل الأول: إلى شهر'),
+      ('sem2_from', 'الفصل الثاني: من شهر'),
+      ('sem2_to', 'الفصل الثاني: إلى شهر'),
+    ]),
     ('اللجان', [('committee_capacity', 'سعة اللجنة (عدد الطلاب)')]),
   ];
   static const textKeys = {'ml_hw', 'ml_att', 'ml_oral', 'ml_written'};
