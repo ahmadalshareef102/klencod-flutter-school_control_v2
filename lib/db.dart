@@ -28,6 +28,9 @@ class Db {
   static const defaults = {
     'school': '', 'teacher': '', 'year': '1448هـ',
     'theme': 'dark', 'font': 'system', 'keypad': '1',
+    'cert_office': '', 'cert_admin': '', 'cert_control_head': '',
+    'cert_principal': '', 'cert_vice': '', 'cert_bg': '1', 'cert_frame': '1',
+    'cert_emblem': '', 'cert_logo': '', 'cert_stamp': '',
     'sem1_from': '1', 'sem1_to': '3', 'sem2_from': '4', 'sem2_to': '6', 'calendar': 'hijri', 'hijri_offset': '0',
     'min_percent': '50', 'max_failed_second_round': '2',
     'max_t1_work': '20', 'max_t1_exam': '30',
@@ -49,7 +52,7 @@ class Db {
     if (_db != null) return _db!;
     final path = p.join(await getDatabasesPath(), 'control.db');
     _db = await openDatabase(path,
-        version: 3, onCreate: _create, onUpgrade: _upgrade);
+        version: 4, onCreate: _create, onUpgrade: _upgrade);
     return _db!;
   }
 
@@ -66,6 +69,10 @@ class Db {
       }
       await d.execute('UPDATE students SET reg_no = 1000 + id');
       await _createV3Tables(d);
+    }
+    if (oldV < 4) {
+      await d.execute('ALTER TABLE students ADD COLUMN address TEXT');
+      await d.execute('ALTER TABLE students ADD COLUMN photo TEXT');
     }
   }
 
@@ -89,7 +96,8 @@ class Db {
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, gender TEXT,
       class_id INTEGER, seat_no INTEGER, committee_no INTEGER,
       status TEXT DEFAULT 'مستجد', section TEXT DEFAULT 'أ', phone TEXT,
-      guardian TEXT, birth TEXT, notes TEXT, reg_no INTEGER, reg_date TEXT)''');
+      guardian TEXT, birth TEXT, notes TEXT, reg_no INTEGER, reg_date TEXT,
+      address TEXT, photo TEXT)''');
     await d.execute('''CREATE TABLE grades(
       student_id INTEGER, subject_id INTEGER,
       t1_work REAL, t1_exam REAL, t2_work REAL, t2_exam REAL,

@@ -295,3 +295,19 @@ Future<void> exportTable(ExportTable t,
     await shareBytes('$safe.csv', csvBytes(rows), mime: 'text/csv');
   }
 }
+
+/// يختار صورة من المعرض وينسخها لمجلد التطبيق ويعيد مسارها.
+Future<String?> pickAndStoreImage(String prefix) async {
+  final r = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+  if (r == null || r.files.isEmpty) return null;
+  final f = r.files.first;
+  final b = f.bytes;
+  if (b == null) return null;
+  final dir = await getApplicationDocumentsDirectory();
+  final folder = Directory('${dir.path}/images');
+  if (!await folder.exists()) await folder.create(recursive: true);
+  final ext = (f.extension ?? 'png').toLowerCase();
+  final path = '${folder.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+  await File(path).writeAsBytes(b, flush: true);
+  return path;
+}

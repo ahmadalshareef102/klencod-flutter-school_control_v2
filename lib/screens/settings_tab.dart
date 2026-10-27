@@ -7,6 +7,7 @@ import '../dates.dart';
 import '../db.dart';
 import '../widgets.dart';
 import 'about_screen.dart';
+import 'cert_settings.dart';
 import 'excel_center.dart';
 import 'rules_screen.dart';
 import 'subjects_screen.dart';
@@ -217,6 +218,10 @@ class _SettingsTabState extends State<SettingsTab> {
           const SizedBox(height: 10),
           _tile(Icons.menu_book, 'المواد الدراسية', 'إضافة وتعديل وحذف ونسخ المواد لكل صف',
               () => _go(const SubjectsScreen()), color: Colors.blue),
+          const SizedBox(height: 8),
+          _tile(Icons.workspace_premium_outlined, 'إعدادات الشهادة',
+              'الترويسة والشعارات والختم والتواقيع وشكل الإطار',
+              () => _go(const CertSettingsScreen()), color: Colors.deepPurple),
           const SizedBox(height: 8),
           _tile(Icons.rule, 'قواعد الدرجات والنتائج',
               'السقوف ونسبة النجاح والتقديرات والدرجات الشهرية واللجان',

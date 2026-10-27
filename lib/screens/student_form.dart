@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import '../data_io.dart';
 import '../app_state.dart';
 import '../dates.dart';
 import '../db.dart';
@@ -19,6 +21,8 @@ class _StudentFormState extends State<StudentForm> {
   final phone = TextEditingController();
   final guardian = TextEditingController();
   final notes = TextEditingController();
+  final address = TextEditingController();
+  String? photo;
   String gender = 'ذكر', status = 'مستجد', year = '';
   int classId = 1;
   DateTime? birth;
@@ -49,6 +53,9 @@ class _StudentFormState extends State<StudentForm> {
         phone.text = '${s['phone'] ?? ''}';
         guardian.text = '${s['guardian'] ?? ''}';
         notes.text = '${s['notes'] ?? ''}';
+        address.text = '${s['address'] ?? ''}';
+        final ph = '${s['photo'] ?? ''}';
+        photo = ph.isEmpty ? null : ph;
         gender = '${s['gender'] ?? 'ذكر'}';
         status = '${s['status'] ?? 'مستجد'}';
         classId = s['class_id'] as int;
@@ -87,6 +94,8 @@ class _StudentFormState extends State<StudentForm> {
       'phone': phone.text.trim(),
       'guardian': guardian.text.trim(),
       'notes': notes.text.trim(),
+      'address': address.text.trim(),
+      'photo': photo ?? '',
       'birth': birth == null ? null : isoDate(birth!),
       'reg_date': isoDate(regDate),
       if (reg != null) 'reg_no': reg,
@@ -113,6 +122,35 @@ class _StudentFormState extends State<StudentForm> {
         ],
       ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        Row(children: [
+          CircleAvatar(
+            radius: 38,
+            backgroundImage: (photo != null && File(photo!).existsSync())
+                ? FileImage(File(photo!))
+                : null,
+            child: (photo != null && File(photo!).existsSync())
+                ? null
+                : const Icon(Icons.person, size: 38),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Wrap(spacing: 8, children: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final p = await pickAndStoreImage('student');
+                  if (p != null) setState(() => photo = p);
+                },
+                icon: const Icon(Icons.photo_camera_outlined),
+                label: const Text('صورة الطالب'),
+              ),
+              if (photo != null)
+                TextButton(
+                    onPressed: () => setState(() => photo = null),
+                    child: const Text('إزالة')),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 12),
         TextField(
             controller: name,
             decoration: const InputDecoration(labelText: 'اسم الطالب رباعي')),
@@ -185,6 +223,10 @@ class _StudentFormState extends State<StudentForm> {
           decoration: const InputDecoration(labelText: 'العام الدراسي'),
           child: Text(year),
         ),
+        const SizedBox(height: 12),
+        TextField(
+            controller: address,
+            decoration: const InputDecoration(labelText: 'العنوان')),
         const SizedBox(height: 12),
         TextField(
             controller: guardian,

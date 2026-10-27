@@ -258,15 +258,6 @@ class MonthlyCertData {
   MonthlyCertData(this.name, this.seat, this.className, this.absence, this.rows);
 }
 
-class FinalCertData {
-  final String name, className, failed;
-  final int? seat;
-  final List<List<String>> rows; // مادة، ف1، ف2، مجموع
-  final List<String> summary;
-  FinalCertData(this.name, this.seat, this.className, this.rows, this.summary,
-      this.failed);
-}
-
 class NoticeData {
   final String name, regNo, className, section, avg, exam, total;
   final List<List<String>> monthRows;
@@ -557,51 +548,6 @@ Future<Uint8List> buildSemesterAll(List<SemAllData> data, String school,
         ])),
       );
   return _cutDoc([for (final n in data) block(n)], perPage);
-}
-
-/// شهادات النتيجة: طالبان في صفحة A4.
-Future<Uint8List> buildFinalCerts(List<FinalCertData> data, String school,
-    String year, List<double> maxes) {
-  pw.Widget block(FinalCertData c) => pw.SizedBox(
-        width: 520,
-        child: _boxed(pw.Column(children: [
-          _banner('شهادة نتيجة الطالب',
-              'الجمهورية اليمنية - وزارة التربية والتعليم${school.isEmpty ? '' : ' - $school'} - العام $year'),
-          pw.SizedBox(height: 8),
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: _rtl([
-              _t('الطالب: ${c.name}', bold: true, size: 12),
-              _t('رقم الجلوس: ${c.seat ?? '-'}', size: 11),
-              _t('الصف: ${c.className}', size: 11),
-            ]),
-          ),
-          pw.SizedBox(height: 8),
-          _grid(
-            ['المادة', 'الفصل الأول', 'الفصل الثاني', 'المجموع'],
-            [
-              ...c.rows,
-              ['النهاية العظمى', _nn(maxes[0]), _nn(maxes[1]), _nn(maxes[2])],
-            ],
-            <pw.TableColumnWidth>[
-              const pw.FlexColumnWidth(3), const pw.FlexColumnWidth(1.3),
-              const pw.FlexColumnWidth(1.3), const pw.FlexColumnWidth(1.3),
-            ],
-            size: 9,
-          ),
-          pw.SizedBox(height: 8),
-          _summaryBox([
-            for (final s in c.summary) [s.split(':').first, s.contains(':') ? s.split(':').sublist(1).join(':').trim() : ''],
-          ]),
-          if (c.failed.isNotEmpty) ...[
-            pw.SizedBox(height: 4),
-            _t('المواد الراسب فيها: ${c.failed}', size: 9),
-          ],
-          pw.SizedBox(height: 14),
-          _signatures(),
-        ])),
-      );
-  return _cutDoc([for (final c in data) block(c)], 2);
 }
 
 /// تقرير جدولي عام (قوائم، كشوف رصد، حضور...).

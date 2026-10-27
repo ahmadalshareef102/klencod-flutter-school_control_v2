@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'app_state.dart';
+import 'arabic_text.dart';
+import 'cert.dart';
 import 'data_io.dart';
 import 'dates.dart';
 import 'db.dart';
@@ -10,7 +12,7 @@ import 'results_service.dart';
 import 'widgets.dart';
 
 enum RKind {
-  notices, monthlySheet, yearWork, attendance, monthlyCerts, studentSemester,
+  semesterCerts, notices, monthlySheet, yearWork, attendance, monthlyCerts, studentSemester,
   finalCerts, incomplete, sectionFull, noticesAll, gradeSheet, results,
   classList,
 }
@@ -29,6 +31,10 @@ class RMeta {
 }
 
 const reportMetas = <RMeta>[
+  RMeta(RKind.semesterCerts, 'شهادات نتيجة امتحان نهاية الفصل (طالب في الصفحة)',
+      'شهادة رسمية بإطار زخرفي: المحصلة والاختبار والمجموع والتقدير والترتيب.',
+      Icons.workspace_premium_outlined,
+      semester: true),
   RMeta(RKind.notices, 'إشعارات درجات (4 طلاب في الصفحة)',
       'إشعار رسمي لولي الأمر: الدرجات الشهرية ومعدل الأشهر واختبار المنتصف والمجموع.',
       Icons.mail_outline,
@@ -53,8 +59,8 @@ const reportMetas = <RMeta>[
       'تقرير فصلي كامل لكل طالب في صفحة: معدل الأشهر والاختبار والمجموع.',
       Icons.assignment_ind_outlined,
       semester: true),
-  RMeta(RKind.finalCerts, 'شهادات النتيجة النهائية السنوية (طالبان في الصفحة)',
-      'شهادة نتيجة: درجات المواد والمجموع والنسبة والتقدير والترتيب.',
+  RMeta(RKind.finalCerts, 'شهادات النتيجة النهائية السنوية (طالب في الصفحة)',
+      'شهادة العام الكامل بالفصلين: الدرجات والمجموع والتقدير والترتيب.',
       Icons.verified_outlined),
   RMeta(RKind.incomplete, 'كشف الدرجات غير المكتملة',
       'الطلاب والمواد التي لم تكتمل درجاتها بعد.', Icons.rule_folder_outlined,
@@ -149,6 +155,106 @@ Future<_Term> _term(int sid, int subjectId, int sem, Rules rules,
 
 String _semName(int sem) =>
     sem == 0 ? 'الفصل الدراسي الأول' : sem == 1 ? 'الفصل الدراسي الثاني' : 'الفصلان معاً';
+
+class _Calc {
+  final List<List<String>> rows = [];
+  double a = 0, b = 0, c = 0;
+  int count = 0;
+}
+
+/// شهادات النتيجة بتصميم الإطار: [sem] 0/1 فصل، 2 سنوية.
+Future<ReportData> _certReport(Scope sc, int sem, int? onlyStudent, String year) async {
+  final rules = await Rules.load();
+  final d = await Db.get();
+  final cls = await Db.className(sc.classId);
+  final subjects = await Db.subjectsOf(sc.classId);
+  final all = await Db.students(classId: sc.classId, section: sc.section);
+  final style = await loadCertStyle();
+  final subjMax = sem == 2
+      ? rules.subjectMax
+      : sem == 0
+          ? rules.maxW1 + rules.maxE1
+          : rules.maxW2 + rules.maxE2;
+  final calc = <int, _Calc>{};
+  for (final st in all) {
+    final k = _Calc();
+    for (final sub in subjects) {
+      final g = await d.query('grades',
+          where: 'student_id=? AND subject_id=?', whereArgs: [st['id'], sub['id']]);
+      double? n(String f) => g.isEmpty ? null : (g.first[f] as num?)?.toDouble();
+      double? a, b;
+      if (sem == 0) {
+        a = n('t1_work');
+        b = n('t1_exam');
+      } else if (sem == 1) {
+        a = n('t2_work');
+        b = n('t2_exam');
+      } else {
+        final x = [n('t1_work'), n('t1_exam')], y = [n('t2_work'), n('t2_exam')];
+        a = x.every((e) => e == null) ? null : x.fold<double>(0, (p, e) => p + (e ?? 0));
+        b = y.every((e) => e == null) ? null : y.fold<double>(0, (p, e) => p + (e ?? 0));
+      }
+      final has = a != null || b != null;
+      final c = (a ?? 0) + (b ?? 0);
+      if (has) {
+        k.a += a ?? 0;
+        k.b += b ?? 0;
+        k.c += c;
+        k.count++;
+      }
+      k.rows.add(['${sub['name']}', nf(a), nf(b), has ? nf(c) : '',
+        has ? rules.rating(subjMax == 0 ? 0 : c / subjMax * 100) : '']);
+    }
+    calc[st['id'] as int] = k;
+  }
+  final ranked = [for (final e in calc.entries) if (e.value.count > 0) e]
+    ..sort((x, y) => y.value.c.compareTo(x.value.c));
+  final ranks = competitionRanks([for (final e in ranked) e.value.c]);
+  final rankOf = {for (var i = 0; i < ranked.length; i++) ranked[i].key: ranks[i]};
+
+  final title = sem == 0
+      ? 'نتيجة امتحان نهاية الفصل الدراسي الأول'
+      : sem == 1
+          ? 'نتيجة امتحان نهاية الفصل الدراسي الثاني'
+          : 'نتيجة امتحان نهاية العام الدراسي';
+  final heads = sem == 2
+      ? ['الفصل الأول', 'الفصل الثاني', 'المجموع', 'التقدير']
+      : ['المحصلة', 'الاختبار', 'المجموع', 'التقدير'];
+  final data = <ResultCertData>[];
+  final flat = <List<String>>[];
+  for (final st in all) {
+    final id = st['id'] as int;
+    if (onlyStudent != null && id != onlyStudent) continue;
+    final k = calc[id]!;
+    final max = k.count * subjMax;
+    final pct = max == 0 ? 0.0 : k.c / max * 100;
+    final rank = rankOf[id];
+    for (final r in k.rows) {
+      flat.add(['${st['name']}', ...r]);
+    }
+    data.add(ResultCertData(
+      name: '${st['name']}',
+      regNo: '${st['reg_no'] ?? ''}',
+      seat: '${st['seat_no'] ?? ''}',
+      className: cls,
+      section: '${st['section'] ?? ''}',
+      address: '${st['address'] ?? ''}',
+      photoPath: '${st['photo'] ?? ''}',
+      heads: heads,
+      rows: k.rows,
+      totals: k.count == 0
+          ? ['', '', '', '']
+          : [nf(k.a), nf(k.b), nf(k.c), rules.rating(pct)],
+      totalWords: k.count == 0 ? '' : arabicWords(k.c),
+      rankText: rank == null ? '-' : ordinalAr(rank),
+      percent: max == 0 ? '-' : pct.toStringAsFixed(1),
+    ));
+  }
+  return ReportData(
+      ExportTable('$title - $cls', ['الاسم', 'المادة', heads[0], heads[1], heads[2], heads[3]], flat),
+      () => buildResultCerts(data, style, year, title),
+      data.length);
+}
 
 Future<ReportData> buildReport(RKind kind, Scope sc,
     {int semester = 0, DateTime? date, int? onlyStudent}) async {
@@ -441,32 +547,10 @@ Future<ReportData> buildReport(RKind kind, Scope sc,
           data.length);
 
     case RKind.finalCerts:
-      final rules = await Rules.load();
-      final res = await classResults(sc.classId, section: sc.section);
-      final data = <FinalCertData>[];
-      final flat = <List<String>>[];
-      for (final r in res) {
-        if (onlyStudent != null && r.student['id'] != onlyStudent) continue;
-        final tr = await transcript(r.student['id'] as int, sc.classId);
-        final rows = [
-          for (final t in tr) [t.subject, nf(t.t1), nf(t.t2), (t.t1 == null && t.t2 == null) ? '' : nf(t.total)]
-        ];
-        for (final row in rows) {
-          flat.add(['${r.student['name']}', ...row]);
-        }
-        data.add(FinalCertData('${r.student['name']}', r.student['seat_no'] as int?, cls, rows, [
-          'المجموع: ${nf(r.result.total)} / ${nf(r.result.max)}',
-          'النسبة: ${r.result.percent.toStringAsFixed(1)}%',
-          'التقدير: ${r.result.rating}',
-          'النتيجة: ${r.result.status}',
-          if (r.rank != null) 'الترتيب: ${r.rank}',
-        ], r.result.failed.join('، ')));
-      }
-      final maxes = [rules.maxW1 + rules.maxE1, rules.maxW2 + rules.maxE2, rules.subjectMax];
-      return ReportData(
-          ExportTable('شهادات النتيجة - $cls', ['الاسم', 'المادة', 'الفصل الأول', 'الفصل الثاني', 'المجموع'], flat),
-          () => buildFinalCerts(data, school, year, maxes),
-          data.length);
+      return _certReport(sc, 2, onlyStudent, year);
+
+    case RKind.semesterCerts:
+      return _certReport(sc, semester == 1 ? 1 : 0, onlyStudent, year);
 
     case RKind.attendance:
       final day = date ?? DateTime.now();

@@ -37,9 +37,16 @@ Future<void> printStudentCert(BuildContext context, int id) async {
   final d = await Db.get();
   final r = await d.query('students', where: 'id=?', whereArgs: [id]);
   if (r.isEmpty) return;
+  final which = await showOptions<int>(context, 'شهادة النتيجة', const [
+    Opt(Icons.looks_one_outlined, 'نهاية الفصل الأول', 0),
+    Opt(Icons.looks_two_outlined, 'نهاية الفصل الثاني', 1),
+    Opt(Icons.workspace_premium_outlined, 'نهاية العام (الفصلان)', 2),
+  ]);
+  if (which == null) return;
+  final sc = Scope(r.first['class_id'] as int, null, null, 1);
   final data = await buildReport(
-      RKind.finalCerts, Scope(r.first['class_id'] as int, null, null, 1),
-      onlyStudent: id);
+      which == 2 ? RKind.finalCerts : RKind.semesterCerts, sc,
+      semester: which, onlyStudent: id);
   await printPdf(await data.pdf(), 'شهادة ${r.first['name']}');
 }
 

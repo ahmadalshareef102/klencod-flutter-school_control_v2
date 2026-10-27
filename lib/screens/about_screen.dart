@@ -30,10 +30,15 @@ class DeveloperCard extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         child: Column(children: [
           Row(children: [
-            CircleAvatar(
-                radius: 24,
-                backgroundColor: cs.primaryContainer,
-                child: Icon(Icons.code, color: cs.onPrimaryContainer)),
+            Container(
+              width: 60,
+              height: 60,
+              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Image.asset('assets/developer.png', fit: BoxFit.contain),
+              ),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -75,8 +80,10 @@ class AboutScreen extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(children: [
-                Icon(Icons.fact_check,
-                    size: 56, color: Theme.of(context).colorScheme.primary),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Image.asset('assets/icon.png', width: 84, height: 84),
+                ),
                 const SizedBox(height: 8),
                 const Text(AppInfo.appName,
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
@@ -87,6 +94,16 @@ class AboutScreen extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall),
               ]),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.asset('assets/developer.png', height: 150, fit: BoxFit.contain),
+              ),
             ),
           ),
           const SizedBox(height: 12),

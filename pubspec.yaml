@@ -1,7 +1,7 @@
 name: school_control
 description: الكنترول المدرسي - إدارة القيد ورصد الدرجات واستخراج النتائج
 publish_to: 'none'
-version: 2.1.0+5
+version: 2.2.1+7
 
 environment:
   sdk: '>=3.6.0 <4.0.0'
@@ -26,6 +26,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/icon.png
+    - assets/developer.png
 
   fonts:
     - family: Cairo

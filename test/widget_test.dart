@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:school_control/arabic_text.dart';
 import 'package:school_control/dates.dart';
 import 'package:school_control/logic.dart';
 
@@ -12,6 +13,7 @@ void main() {
   splitTests();
   rankTests();
   monthlyTests();
+  arabicTests();
   test('طالب ناجح في كل المواد', () {
     final r = compute([
       SubjectScore('عربي', 20, 30, 20, 30),
@@ -60,5 +62,21 @@ void monthlyTests() {
 
   test('التاريخ الهجري يقع في عام 1448 في أكتوبر 2026', () {
     expect(toHijri(DateTime(2026, 10, 26)).y, 1448);
+  });
+}
+
+void arabicTests() {
+  test('تفقيط المجموع كما في الشهادة', () {
+    expect(arabicWords(435), 'أربعمائة وخمس وثلاثون');
+    expect(arabicWords(50), 'خمسون');
+    expect(arabicWords(112), 'مائة واثنتا عشرة');
+    expect(arabicWords(1000), 'ألف');
+    expect(arabicWords(96.5), 'ست وتسعون ونصف');
+  });
+
+  test('الترتيب بالحروف', () {
+    expect(ordinalAr(6), 'السادس');
+    expect(ordinalAr(1), 'الأول');
+    expect(ordinalAr(25), '25');
   });
 }
