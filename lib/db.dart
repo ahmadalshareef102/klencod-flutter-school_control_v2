@@ -1,5 +1,6 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import 'license.dart';
 import 'logic.dart';
 
 typedef DbRow = Map<String, Object?>;
@@ -182,6 +183,7 @@ class Db {
 
   // ---------- الطلاب ----------
   static Future<int> addStudent(DbRow m) async {
+    await License.ensureCanAdd();
     final d = await get();
     final id = await d.insert('students', m);
     await d.update('students', {'reg_no': m['reg_no'] ?? 1000 + id},

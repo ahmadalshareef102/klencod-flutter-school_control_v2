@@ -4,7 +4,9 @@ import '../data_io.dart';
 import '../app_state.dart';
 import '../dates.dart';
 import '../db.dart';
+import '../license.dart';
 import '../widgets.dart';
+import 'license_screen.dart';
 
 class StudentForm extends StatefulWidget {
   final int? id;
@@ -101,7 +103,12 @@ class _StudentFormState extends State<StudentForm> {
       if (reg != null) 'reg_no': reg,
     };
     if (widget.id == null) {
-      await Db.addStudent(m);
+      try {
+        await Db.addStudent(m);
+      } on LicenseLimitException catch (e) {
+        if (mounted) await showLimitDialog(context, e.limit);
+        return;
+      }
     } else {
       await Db.updateStudent(widget.id!, m);
     }

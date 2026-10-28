@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../data_io.dart';
 import '../dates.dart';
 import '../db.dart';
+import '../license.dart';
 import '../logic.dart';
 import '../report_engine.dart';
 import '../widgets.dart';
@@ -163,7 +164,8 @@ class _ExcelCenterState extends State<ExcelCenter> {
       final g = _cell(r, iGender);
       final female = g.contains('أنث') || g.contains('انث') || g.toLowerCase().startsWith('f');
       final reg = int.tryParse(_cell(r, iReg));
-      await Db.addStudent({
+      try {
+        await Db.addStudent({
         'name': name,
         'gender': female ? 'أنثى' : 'ذكر',
         'class_id': cid,
@@ -173,8 +175,12 @@ class _ExcelCenterState extends State<ExcelCenter> {
         'status': 'مستجد',
         'reg_date': isoDate(DateTime.now()),
         if (reg != null) 'reg_no': reg,
-      });
-      n++;
+        });
+        n++;
+      } on LicenseLimitException catch (e) {
+        return 'توقف الاستيراد بعد $n طالب لأنك بلغت الحد المسموح (${e.limit}). '
+            'تواصل مع المطور لتفعيل التطبيق ثم أعد استيراد الباقي.';
+      }
     }
     return 'تم استيراد $n طالب' + (skipped > 0 ? ' (تخطي $skipped صفاً فارغاً)' : '');
   }

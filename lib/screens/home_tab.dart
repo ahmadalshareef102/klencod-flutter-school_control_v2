@@ -5,7 +5,9 @@ import '../data_io.dart';
 import '../dates.dart';
 import '../db.dart';
 import '../widgets.dart';
+import '../license.dart';
 import 'about_screen.dart';
+import 'license_screen.dart';
 import 'attendance_screen.dart';
 import 'committees.dart';
 import 'excel_center.dart';
@@ -24,6 +26,7 @@ class HomeTab extends StatefulWidget {
 class _HomeTabState extends State<HomeTab> {
   int students = 0, subjects = 0, present = 0, absent = 0;
   String teacher = '', school = '', year = '';
+  LicenseState? lic;
 
   @override
   void initState() {
@@ -39,6 +42,7 @@ class _HomeTabState extends State<HomeTab> {
         "SELECT COUNT(*) FROM attendance WHERE date=? AND status IN ('حاضر','متأخر')", [today]);
     absent = await Db.count(
         "SELECT COUNT(*) FROM attendance WHERE date=? AND status='غائب'", [today]);
+    lic = await License.state();
     teacher = await Db.setting('teacher');
     school = await Db.setting('school');
     year = await Db.setting('year');
@@ -169,6 +173,23 @@ class _HomeTabState extends State<HomeTab> {
             ]),
           ),
         ),
+        if (lic != null && !lic!.unlimited && students >= lic!.limit * 0.7) ...[
+          const SizedBox(height: 12),
+          Card(
+            color: Colors.orange.withOpacity(.18),
+            child: ListTile(
+              leading: const Icon(Icons.lock_clock, color: Colors.orange),
+              title: Text(students >= lic!.limit
+                  ? 'بلغت الحد الأقصى للنسخة (${lic!.limit} طالب)'
+                  : 'النسخة المجانية: $students من ${lic!.limit} طالب'),
+              subtitle: Text(lic!.expired
+                  ? 'انتهت مدة التفعيل، تواصل مع المطور للتجديد'
+                  : 'للمتابعة تواصل مع المطور لتفعيل التطبيق'),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: () => _go(const LicenseScreen()),
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         Row(children: [
           Expanded(child: StatTile('إجمالي الطلاب', '$students', Icons.groups, Colors.blue)),

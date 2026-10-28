@@ -1,7 +1,7 @@
 name: school_control
 description: الكنترول المدرسي - إدارة القيد ورصد الدرجات واستخراج النتائج
 publish_to: 'none'
-version: 2.2.2+8
+version: 2.3.0+9
 
 environment:
   sdk: '>=3.6.0 <4.0.0'
@@ -18,6 +18,8 @@ dependencies:
   path_provider: ^2.1.5
   archive: ^3.6.1
   url_launcher: ^6.3.1
+  crypto: ^3.0.3
+  android_id: ">=0.4.0 <1.0.0"
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:school_control/arabic_text.dart';
 import 'package:school_control/dates.dart';
+import 'package:school_control/license.dart';
 import 'package:school_control/logic.dart';
 
 const rules = Rules(
@@ -14,6 +15,7 @@ void main() {
   rankTests();
   monthlyTests();
   arabicTests();
+  licenseTests();
   test('طالب ناجح في كل المواد', () {
     final r = compute([
       SubjectScore('عربي', 20, 30, 20, 30),
@@ -78,5 +80,12 @@ void arabicTests() {
     expect(ordinalAr(6), 'السادس');
     expect(ordinalAr(1), 'الأول');
     expect(ordinalAr(25), '25');
+  });
+}
+
+void licenseTests() {
+  test('توقيع كود التفعيل ثابت ومطابق للمولّد', () {
+    expect(License.sign('ABCD1234EF567890', 'U', '0'), '30A08449400245D3');
+    expect(License.sign('ABCD1234EF567890', '500', '20271231'), '4950B0484EB260DA');
   });
 }

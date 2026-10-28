@@ -9,6 +9,8 @@ import '../widgets.dart';
 import 'about_screen.dart';
 import 'cert_settings.dart';
 import 'excel_center.dart';
+import 'license_screen.dart';
+import '../license.dart';
 import 'rules_screen.dart';
 import 'subjects_screen.dart';
 
@@ -48,7 +50,7 @@ class SettingsTab extends StatefulWidget {
 }
 
 class _SettingsTabState extends State<SettingsTab> {
-  String teacher = '', school = '', year = '';
+  String teacher = '', school = '', year = '', licTitle = '';
 
   @override
   void initState() {
@@ -60,6 +62,7 @@ class _SettingsTabState extends State<SettingsTab> {
     teacher = await Db.setting('teacher');
     school = await Db.setting('school');
     year = await Db.setting('year');
+    licTitle = (await License.state()).title;
     if (mounted) setState(() {});
   }
 
@@ -218,6 +221,9 @@ class _SettingsTabState extends State<SettingsTab> {
           const SizedBox(height: 10),
           _tile(Icons.menu_book, 'المواد الدراسية', 'إضافة وتعديل وحذف ونسخ المواد لكل صف',
               () => _go(const SubjectsScreen()), color: Colors.blue),
+          const SizedBox(height: 8),
+          _tile(Icons.verified_user_outlined, 'الترخيص والتفعيل', licTitle,
+              () => _go(const LicenseScreen()), color: Colors.amber),
           const SizedBox(height: 8),
           _tile(Icons.workspace_premium_outlined, 'إعدادات الشهادة',
               'الترويسة والشعارات والختم والتواقيع وشكل الإطار',

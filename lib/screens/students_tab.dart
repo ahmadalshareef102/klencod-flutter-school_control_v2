@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../db.dart';
+import '../license.dart';
 import '../widgets.dart';
+import 'license_screen.dart';
 import 'excel_center.dart';
 import 'student_form.dart';
 import 'student_profile.dart';
@@ -113,19 +115,26 @@ class _StudentsTabState extends State<StudentsTab> {
     );
     if (ok != true) return;
     var n = 0;
+    int? hitLimit;
     for (final line in text.text.split('\n')) {
       final name = line.trim();
       if (name.isEmpty) continue;
-      await Db.addStudent({
-        'name': name,
-        'gender': gender,
-        'class_id': cid,
-        'section': sec.text.trim().isEmpty ? 'أ' : sec.text.trim(),
-        'status': 'مستجد',
-      });
-      n++;
+      try {
+        await Db.addStudent({
+          'name': name,
+          'gender': gender,
+          'class_id': cid,
+          'section': sec.text.trim().isEmpty ? 'أ' : sec.text.trim(),
+          'status': 'مستجد',
+        });
+        n++;
+      } on LicenseLimitException catch (e) {
+        hitLimit = e.limit;
+        break;
+      }
     }
     if (mounted) toast(context, 'تمت إضافة $n طالب');
+    if (hitLimit != null && mounted) await showLimitDialog(context, hitLimit);
     _load();
   }
 
