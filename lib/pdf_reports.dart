@@ -101,7 +101,7 @@ Future<Uint8List> buildCallSheets(
             children: [
               pw.TableRow(
                 decoration: const pw.BoxDecoration(color: PdfColors.grey300),
-                children: _rtl([for (final h in heads) _cell(h, bold: true, size: size)]),
+                children: _rtl([for (final h in heads) _cell(h, bold: true)]),
               ),
               for (var i = 0; i < sh.students.length; i++)
                 pw.TableRow(
