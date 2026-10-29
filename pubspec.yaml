@@ -1,7 +1,7 @@
 name: school_control
 description: الكنترول المدرسي - إدارة القيد ورصد الدرجات واستخراج النتائج
 publish_to: 'none'
-version: 2.3.0+9
+version: 2.4.0+11
 
 environment:
   sdk: '>=3.6.0 <4.0.0'

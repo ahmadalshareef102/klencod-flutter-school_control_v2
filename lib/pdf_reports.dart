@@ -596,3 +596,78 @@ Future<Uint8List> buildStudentCard(String name, List<List<String>> kv,
   ));
   return doc.save();
 }
+
+// ===================== كشف اللجان التفصيلي (التوزيع المتقدم) =====================
+
+class CommitteeDetail {
+  final int no;
+  final String genderLabel;
+  final Map<String, int> classCounts;
+  final int males, females;
+  final List<List<String>> rows; // م، الاسم، الصف، الجنس، رقم القيد، رقم الجلوس
+  CommitteeDetail(this.no, this.genderLabel, this.classCounts, this.males,
+      this.females, this.rows);
+}
+
+/// صفحة ملخص + صفحة تفصيلية لكل لجنة بأسماء مرتبة أبجدياً.
+Future<Uint8List> buildCommitteeDetails(
+    List<CommitteeDetail> data, String school, String year) async {
+  final doc = pw.Document(theme: await _theme());
+  pw.Widget head(String title) => pw.Column(children: [
+        _header(school, year),
+        pw.SizedBox(height: 10),
+        _t(title, bold: true, size: 14),
+        pw.SizedBox(height: 8),
+      ]);
+
+  final sumHeads = ['اللجنة', 'النوع', 'ذكور', 'إناث', 'الإجمالي', 'الصفوف وأعداد طلابها'];
+  final sumRows = [
+    for (final d in data)
+      [
+        '${d.no}', d.genderLabel, '${d.males}', '${d.females}',
+        '${d.males + d.females}',
+        d.classCounts.entries.map((e) => '${e.key}: ${e.value}').join('، '),
+      ]
+  ];
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    margin: const pw.EdgeInsets.all(28),
+    header: (_) => head('ملخص توزيع الطلاب على اللجان'),
+    footer: (_) => _signatures(),
+    build: (_) => [
+      _grid(sumHeads, sumRows, <pw.TableColumnWidth>[
+        const pw.FlexColumnWidth(1), const pw.FlexColumnWidth(1.2),
+        const pw.FlexColumnWidth(1), const pw.FlexColumnWidth(1),
+        const pw.FlexColumnWidth(1.2), const pw.FlexColumnWidth(5),
+      ], size: 9),
+    ],
+  ));
+
+  const heads = ['م', 'اسم الطالب', 'الصف', 'الجنس', 'رقم القيد', 'رقم الجلوس'];
+  for (final d in data) {
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(28),
+      header: (_) => head('لجنة رقم ${d.no} - ${d.genderLabel}'),
+      footer: (_) => _signatures(),
+      build: (_) => [
+        _t(
+            'ذكور: ${d.males}   إناث: ${d.females}   الإجمالي: ${d.males + d.females}'
+            '   |   ${d.classCounts.entries.map((e) => '${e.key}: ${e.value}').join('، ')}',
+            size: 10),
+        pw.SizedBox(height: 8),
+        _grid(
+          heads,
+          d.rows,
+          <pw.TableColumnWidth>[
+            const pw.FlexColumnWidth(0.8), const pw.FlexColumnWidth(5),
+            const pw.FlexColumnWidth(2.2), const pw.FlexColumnWidth(1.2),
+            const pw.FlexColumnWidth(1.6), const pw.FlexColumnWidth(1.6),
+          ],
+          size: 10,
+        ),
+      ],
+    ));
+  }
+  return doc.save();
+}

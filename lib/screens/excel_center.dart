@@ -4,6 +4,7 @@ import '../dates.dart';
 import '../db.dart';
 import '../license.dart';
 import '../logic.dart';
+import '../app_state.dart';
 import '../report_engine.dart';
 import '../widgets.dart';
 import 'report_picker.dart';
@@ -22,7 +23,8 @@ class _ExcelCenterState extends State<ExcelCenter> {
   RKind? colsKind;
   bool withTitle = false, busy = false;
   int importTarget = 0;
-  Scope? impScope, tplScope;
+  Scope? impScope, tplScope, tplMulti, tplMonth;
+  int tplSem = 2;
   String log = '';
 
   // ---------------- تصدير ----------------
@@ -109,9 +111,12 @@ class _ExcelCenterState extends State<ExcelCenter> {
       final f = await pickAnyFile();
       if (f == null) return;
       final rows = parseTableFile(f);
-      final msg = importTarget == 0
-          ? await _importStudents(rows)
-          : await _importGrades(rows);
+      final msg = switch (importTarget) {
+        0 => await _importStudents(rows),
+        1 => await _importGrades(rows),
+        2 => await _importGradesMulti(rows),
+        _ => await _importMonthly(rows),
+      };
       if (mounted) setState(() => log = msg);
     } catch (e) {
       if (mounted) setState(() => log = 'تعذر قراءة الملف: $e');
@@ -240,6 +245,242 @@ class _ExcelCenterState extends State<ExcelCenter> {
       ]),
       xlsx: xlsx);
 
+  // ---------- أدوات المطابقة ----------
+  String _norm(String s) => s
+      .trim()
+      .replaceAll('أ', 'ا')
+      .replaceAll('إ', 'ا')
+      .replaceAll('آ', 'ا')
+      .replaceAll('ى', 'ي')
+      .replaceAll('ة', 'ه')
+      .replaceAll('ـ', '')
+      .replaceAll('١', '1')
+      .replaceAll('٢', '2')
+      .replaceAll(RegExp(r'\s+'), ' ');
+
+  /// مكوّن الدرجة الفصلية من نص العنوان.
+  String? _comp(String h) {
+    final t = _norm(h).replaceAll(' ', '');
+    if (t.contains('محصله1')) return 't1_work';
+    if (t.contains('اختبار1') || t.contains('امتحان1')) return 't1_exam';
+    if (t.contains('محصله2')) return 't2_work';
+    if (t.contains('اختبار2') || t.contains('امتحان2')) return 't2_exam';
+    return null;
+  }
+
+  DbRow? _matchSubject(String text, List<DbRow> subjects) {
+    final t = _norm(text);
+    DbRow? best;
+    var len = 0;
+    for (final sub in subjects) {
+      final n = _norm('${sub['name']}');
+      if (n.isNotEmpty && t.contains(n) && n.length > len) {
+        best = sub;
+        len = n.length;
+      }
+    }
+    return best;
+  }
+
+  Map<String, double> _termMax(Rules r) => {
+        't1_work': r.maxW1, 't1_exam': r.maxE1,
+        't2_work': r.maxW2, 't2_exam': r.maxE2,
+      };
+
+  // ---------- استيراد عدة مواد في ملف واحد ----------
+  Future<String> _importGradesMulti(List<List<String>> rows) async {
+    final sc = impScope;
+    if (sc == null) return 'اختر الصف أولاً';
+    if (rows.length < 2) return 'الملف فارغ';
+    final rules = await Rules.load();
+    final maxOf = _termMax(rules);
+    final subjects = await Db.subjectsOf(sc.classId);
+    final head = rows.first.map((e) => e.trim()).toList();
+    final iReg = _idx(head, ['القيد', 'قيد']);
+    final iName = _idx(head, ['الاسم', 'اسم']);
+    if (iReg < 0 && iName < 0) return 'لم أجد عمود رقم القيد أو الاسم في الملف';
+    final students = await Db.students(classId: sc.classId, section: sc.section);
+    final byReg = {for (final s in students) '${s['reg_no']}': s['id'] as int};
+    final byName = {for (final s in students) _norm('${s['name']}'): s['id'] as int};
+    int? sidOf(List<String> r) => byReg[_cell(r, iReg)] ?? byName[_norm(_cell(r, iName))];
+
+    // هل الملف طويل (عمود «المادة») أم عريض (عمود لكل مادة ومكوّن)؟
+    final iSub = head.indexWhere((h) => _norm(h) == 'الماده' || _norm(h) == 'المواد' || _norm(h) == 'اسم الماده');
+    var cells = 0, unmatched = 0, bad = 0, unknownSubjects = 0;
+    final touched = <int>{};
+
+    Future<void> put(int sid, int subjectId, String col, String text) async {
+      final t = text.trim();
+      if (t.isEmpty) return;
+      final v = double.tryParse(t);
+      if (v == null || v < 0 || v > maxOf[col]!) {
+        bad++;
+        return;
+      }
+      await Db.saveGrade(sid, subjectId, col, v);
+      cells++;
+    }
+
+    if (iSub >= 0) {
+      final compCols = <int, String>{};
+      for (var c = 0; c < head.length; c++) {
+        final k = _comp(head[c]);
+        if (k != null) compCols[c] = k;
+      }
+      if (compCols.isEmpty) return 'لم أجد أعمدة المحصلة والاختبار (مثل «المحصلة 1» و«اختبار 1»)';
+      for (var k = 1; k < rows.length; k++) {
+        final r = rows[k];
+        final sid = sidOf(r);
+        if (sid == null) {
+          unmatched++;
+          continue;
+        }
+        final sub = _matchSubject(_cell(r, iSub), subjects);
+        if (sub == null) {
+          unknownSubjects++;
+          continue;
+        }
+        for (final e in compCols.entries) {
+          await put(sid, sub['id'] as int, e.value, _cell(r, e.key));
+        }
+        touched.add(sid);
+      }
+    } else {
+      final colMap = <int, (int, String)>{};
+      for (var c = 0; c < head.length; c++) {
+        final comp = _comp(head[c]);
+        final sub = _matchSubject(head[c], subjects);
+        if (comp != null && sub != null) colMap[c] = (sub['id'] as int, comp);
+      }
+      if (colMap.isEmpty) {
+        return 'لم أتعرف على أعمدة المواد. اكتب العناوين بصيغة «الرياضيات - المحصلة 1» أو نزّل القالب من تبويب «النماذج».';
+      }
+      for (var k = 1; k < rows.length; k++) {
+        final r = rows[k];
+        final sid = sidOf(r);
+        if (sid == null) {
+          unmatched++;
+          continue;
+        }
+        for (final e in colMap.entries) {
+          await put(sid, e.value.$1, e.value.$2, _cell(r, e.key));
+        }
+        touched.add(sid);
+      }
+    }
+    return 'تم تحديث $cells خانة لـ ${touched.length} طالب'
+        '${unmatched > 0 ? ' • صفوف لم تُطابَق: $unmatched' : ''}'
+        '${unknownSubjects > 0 ? ' • مواد غير معروفة: $unknownSubjects' : ''}'
+        '${bad > 0 ? ' • قيم غير صالحة تم تجاهلها: $bad' : ''}';
+  }
+
+  // ---------- استيراد الدرجات الشهرية (مادة + شهر) ----------
+  Future<String> _importMonthly(List<List<String>> rows) async {
+    final sc = impScope;
+    if (sc == null || sc.subjectId == null) return 'اختر الصف والمادة والشهر أولاً';
+    if (rows.length < 2) return 'الملف فارغ';
+    final cfg = await MonthlyCfg.load();
+    final head = rows.first.map((e) => e.trim()).toList();
+    final iReg = _idx(head, ['القيد', 'قيد']);
+    final iName = _idx(head, ['الاسم', 'اسم']);
+    if (iReg < 0 && iName < 0) return 'لم أجد عمود رقم القيد أو الاسم في الملف';
+    const keys = ['hw', 'att', 'oral', 'written'];
+    const fallback = ['واجب', 'مواظب', 'شفه', 'تحرير'];
+    final cols = <int, int>{}; // عمود الملف -> رقم المكوّن 0..3
+    for (var c = 0; c < head.length; c++) {
+      final h = _norm(head[c]);
+      for (var i = 0; i < 4; i++) {
+        final label = _norm(cfg.labels[i]);
+        if ((label.isNotEmpty && h.contains(label)) || h.contains(fallback[i])) {
+          cols.putIfAbsent(c, () => i);
+          break;
+        }
+      }
+    }
+    if (cols.isEmpty) {
+      return 'لم أجد أعمدة المكونات (${cfg.labels.join('، ')}). نزّل القالب الشهري من تبويب «النماذج».';
+    }
+    final students = await Db.students(classId: sc.classId, section: sc.section);
+    final byReg = {for (final s in students) '${s['reg_no']}': s['id'] as int};
+    final byName = {for (final s in students) _norm('${s['name']}'): s['id'] as int};
+    var cells = 0, unmatched = 0, bad = 0;
+    final touched = <int>{};
+    for (var k = 1; k < rows.length; k++) {
+      final r = rows[k];
+      final sid = byReg[_cell(r, iReg)] ?? byName[_norm(_cell(r, iName))];
+      if (sid == null) {
+        unmatched++;
+        continue;
+      }
+      for (final e in cols.entries) {
+        final t = _cell(r, e.key);
+        if (t.isEmpty) continue;
+        final v = double.tryParse(t);
+        if (v == null || v < 0 || v > cfg.maxes[e.value]) {
+          bad++;
+          continue;
+        }
+        await Db.saveMonthly(sid, sc.subjectId!, sc.month, keys[e.value], v);
+        cells++;
+        touched.add(sid);
+      }
+    }
+    return 'تم تحديث $cells خانة شهرية لـ ${touched.length} طالب'
+        '${unmatched > 0 ? ' • صفوف لم تُطابَق: $unmatched' : ''}'
+        '${bad > 0 ? ' • قيم غير صالحة تم تجاهلها: $bad' : ''}';
+  }
+
+  // ---------- قوالب جديدة ----------
+  Future<void> _multiTemplate() async {
+    final sc = tplMulti;
+    if (sc == null) return toast(context, 'اختر الصف');
+    final subjects = await Db.subjectsOf(sc.classId);
+    final students = await Db.students(classId: sc.classId, section: sc.section);
+    final d = await Db.get();
+    final comps = <(String, String)>[
+      if (tplSem != 1) ('t1_work', 'المحصلة 1'),
+      if (tplSem != 1) ('t1_exam', 'اختبار 1'),
+      if (tplSem != 0) ('t2_work', 'المحصلة 2'),
+      if (tplSem != 0) ('t2_exam', 'اختبار 2'),
+    ];
+    final heads = [
+      'رقم القيد', 'الاسم',
+      for (final sub in subjects)
+        for (final c in comps) '${sub['name']} - ${c.$2}',
+    ];
+    final rows = <List<String>>[];
+    for (final st in students) {
+      final row = ['${st['reg_no'] ?? ''}', '${st['name']}'];
+      for (final sub in subjects) {
+        final g = await d.query('grades',
+            where: 'student_id=? AND subject_id=?', whereArgs: [st['id'], sub['id']]);
+        for (final c in comps) {
+          row.add(g.isEmpty ? '' : nf(g.first[c.$1] as num?));
+        }
+      }
+      rows.add(row);
+    }
+    await exportTable(
+        ExportTable('قالب_رصد_كل_المواد_${await Db.className(sc.classId)}', heads, rows),
+        xlsx: true);
+  }
+
+  Future<void> _monthTemplate() async {
+    final sc = tplMonth;
+    if (sc == null || sc.subjectId == null) return toast(context, 'اختر الصف والمادة والشهر');
+    final cfg = await MonthlyCfg.load();
+    final rows0 = await Db.monthlyRows(sc.classId, sc.section, sc.subjectId!, sc.month);
+    final heads = ['رقم القيد', 'الاسم', ...cfg.labels];
+    final rows = [
+      for (final r in rows0)
+        ['${r['reg_no'] ?? ''}', '${r['name']}', nf(r['hw'] as num?), nf(r['att'] as num?),
+          nf(r['oral'] as num?), nf(r['written'] as num?)]
+    ];
+    await exportTable(
+        ExportTable('قالب_الدرجات_الشهرية_${await Db.className(sc.classId)}', heads, rows),
+        xlsx: true);
+  }
+
   Future<void> _gradeTemplate() async {
     final sc = tplScope;
     if (sc == null || sc.subjectId == null) return toast(context, 'اختر الصف والمادة');
@@ -314,21 +555,28 @@ class _ExcelCenterState extends State<ExcelCenter> {
             value: importTarget,
             items: const [
               DropdownMenuItem(value: 0, child: Text('قائمة طلاب')),
-              DropdownMenuItem(value: 1, child: Text('درجات مادة (فصلية)')),
+              DropdownMenuItem(value: 1, child: Text('درجات مادة واحدة (فصلية)')),
+              DropdownMenuItem(value: 2, child: Text('درجات عدة مواد في ملف واحد (فصلية)')),
+              DropdownMenuItem(value: 3, child: Text('الدرجات الشهرية لمادة وشهر')),
             ],
             onChanged: (v) => setState(() => importTarget = v!),
           ),
           const SizedBox(height: 10),
           ScopeBar(
             key: ValueKey('imp$importTarget'),
-            subject: importTarget == 1,
+            subject: importTarget == 1 || importTarget == 3,
+            month: importTarget == 3,
             onChanged: (s) => impScope = s,
           ),
           const SizedBox(height: 6),
           Text(
-              importTarget == 0
-                  ? 'سيُضاف الطلاب إلى الصف المختار إن لم يحدد الملف عمود «الصف».'
-                  : 'تُطابَق الصفوف برقم القيد أو بالاسم، ويُرفض أي رقم يتجاوز السقف.',
+              switch (importTarget) {
+                0 => 'سيُضاف الطلاب إلى الصف المختار إن لم يحدد الملف عمود «الصف».',
+                1 => 'أعمدة الملف: رقم القيد أو الاسم، ثم المحصلة 1 واختبار 1 والمحصلة 2 واختبار 2.',
+                2 => 'عناوين الأعمدة «الرياضيات - المحصلة 1»، أو ملف طويل بعمود «المادة». '
+                    'يُطابَق الطالب برقم القيد أو الاسم، ويُرفض أي رقم يتجاوز السقف.',
+                _ => 'أعمدة الملف: رقم القيد أو الاسم، ثم أسماء المكونات الشهرية كما في الإعدادات.',
+              },
               style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 10),
           FilledButton.icon(
@@ -385,6 +633,55 @@ class _ExcelCenterState extends State<ExcelCenter> {
                 const SizedBox(height: 8),
                 FilledButton.tonalIcon(
                     onPressed: _gradeTemplate,
+                    icon: const Icon(Icons.download),
+                    label: const Text('تنزيل القالب (Excel)')),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('قالب رصد كل المواد في ملف واحد',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ScopeBar(key: const ValueKey('tplMulti'), onChanged: (s) => tplMulti = s),
+                const SizedBox(height: 8),
+                Pick<int>(
+                  label: 'الفصل',
+                  value: tplSem,
+                  items: const [
+                    DropdownMenuItem(value: 0, child: Text('الفصل الأول')),
+                    DropdownMenuItem(value: 1, child: Text('الفصل الثاني')),
+                    DropdownMenuItem(value: 2, child: Text('الفصلان معاً')),
+                  ],
+                  onChanged: (v) => setState(() => tplSem = v!),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                    onPressed: _multiTemplate,
+                    icon: const Icon(Icons.download),
+                    label: const Text('تنزيل القالب (Excel)')),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('قالب الدرجات الشهرية لمادة وشهر',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ScopeBar(
+                    key: const ValueKey('tplMonth'),
+                    subject: true,
+                    month: true,
+                    onChanged: (s) => tplMonth = s),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                    onPressed: _monthTemplate,
                     icon: const Icon(Icons.download),
                     label: const Text('تنزيل القالب (Excel)')),
               ]),

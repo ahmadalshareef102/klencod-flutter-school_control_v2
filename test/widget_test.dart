@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:school_control/arabic_text.dart';
 import 'package:school_control/dates.dart';
+import 'package:school_control/distribution.dart';
 import 'package:school_control/license.dart';
 import 'package:school_control/logic.dart';
 
@@ -16,6 +17,7 @@ void main() {
   monthlyTests();
   arabicTests();
   licenseTests();
+  distributionTests();
   test('طالب ناجح في كل المواد', () {
     final r = compute([
       SubjectScore('عربي', 20, 30, 20, 30),
@@ -87,5 +89,69 @@ void licenseTests() {
   test('توقيع كود التفعيل ثابت ومطابق للمولّد', () {
     expect(License.sign('ABCD1234EF567890', 'U', '0'), '30A08449400245D3');
     expect(License.sign('ABCD1234EF567890', '500', '20271231'), '4950B0484EB260DA');
+  });
+}
+
+void distributionTests() {
+  test('الترتيب الأبجدي يوحّد الهمزات', () {
+    final l = [
+      DistStudent(1, 'علي', 1, 'ذكر'),
+      DistStudent(2, 'أحمد', 1, 'ذكر'),
+      DistStudent(3, 'باسم', 1, 'ذكر'),
+    ]..sort(compareAlpha);
+    expect(l.map((e) => e.name).toList(), ['أحمد', 'باسم', 'علي']);
+  });
+
+  test('التوزيع التلقائي يدرج الجميع بلا تكرار وضمن السعة', () {
+    final st = <DistStudent>[
+      for (var i = 0; i < 4; i++) DistStudent(i + 1, 'م$i', 1, 'ذكر'),
+      for (var i = 0; i < 2; i++) DistStudent(10 + i, 'ف$i', 1, 'أنثى'),
+      for (var i = 0; i < 2; i++) DistStudent(20 + i, 'ن$i', 2, 'ذكر'),
+      for (var i = 0; i < 2; i++) DistStudent(30 + i, 'هـ$i', 2, 'أنثى'),
+    ];
+    final specs = autoSpecs(
+        students: st, classes: {1, 2}, separate: true, capacity: 3);
+    expect(specs.length, 4);
+    expect(specs.every((e) => e.total <= 3), isTrue);
+    final r = runDistribution(
+        students: st, specs: specs, separate: true, classNames: {1: 'أ', 2: 'ب'});
+    final all = r.assign.values.expand((e) => e).toList();
+    expect(all.length, 10);
+    expect(all.toSet().length, 10);
+    expect(r.errors, isEmpty);
+  });
+
+  test('التتابع الأبجدي حسب الحصص', () {
+    final st = [
+      DistStudent(1, 'د', 1, 'ذكر'),
+      DistStudent(2, 'ب', 1, 'ذكر'),
+      DistStudent(3, 'أ', 1, 'ذكر'),
+      DistStudent(4, 'ج', 1, 'ذكر'),
+      DistStudent(5, 'هـ', 1, 'ذكر'),
+    ];
+    final specs = [
+      CommitteeSpec(1, 'X', {1: 2}),
+      CommitteeSpec(2, 'X', {1: 3}),
+    ];
+    final r = runDistribution(
+        students: st, specs: specs, separate: false, classNames: {1: 'أ'});
+    expect(r.assign[1], [3, 2]);
+    expect(r.assign[2], [4, 1, 5]);
+  });
+
+  test('النقص والفائض يُنبَّه إليهما', () {
+    final st = [for (var i = 1; i <= 5; i++) DistStudent(i, 'س$i', 1, 'ذكر')];
+    final few = runDistribution(
+        students: st,
+        specs: [CommitteeSpec(1, 'X', {1: 3})],
+        separate: false,
+        classNames: {1: 'أ'});
+    expect(few.errors, isNotEmpty);
+    final many = runDistribution(
+        students: st,
+        specs: [CommitteeSpec(1, 'X', {1: 9})],
+        separate: false,
+        classNames: {1: 'أ'});
+    expect(many.warnings, isNotEmpty);
   });
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'smart_distribution.dart';
 import '../db.dart';
 import '../pdf_reports.dart';
+import '../widgets.dart';
 
 class CommitteesScreen extends StatefulWidget {
   const CommitteesScreen({super.key});
@@ -96,6 +98,13 @@ class _CommitteesScreenState extends State<CommitteesScreen> {
             padding: const EdgeInsets.all(12),
             child: Wrap(spacing: 8, runSpacing: 8, children: [
               FilledButton.icon(
+                  onPressed: () async {
+                    await open(context, const SmartDistributionScreen());
+                    _load();
+                  },
+                  icon: const Icon(Icons.auto_awesome),
+                  label: const Text('التوزيع المتقدم (أبجدي ومتوازن)')),
+              FilledButton.tonalIcon(
                   onPressed: busy ? null : _distribute,
                   icon: const Icon(Icons.shuffle),
                   label: const Text('توزيع اللجان لكل الصفوف')),
