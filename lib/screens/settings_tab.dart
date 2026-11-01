@@ -7,6 +7,7 @@ import '../dates.dart';
 import '../db.dart';
 import '../widgets.dart';
 import 'about_screen.dart';
+import 'appearance_screen.dart';
 import 'cert_settings.dart';
 import 'excel_center.dart';
 import 'license_screen.dart';
@@ -233,12 +234,9 @@ class _SettingsTabState extends State<SettingsTab> {
               'السقوف ونسبة النجاح والتقديرات والدرجات الشهرية واللجان',
               () => _go(const RulesScreen()), color: Colors.orange),
           const SizedBox(height: 8),
-          _tile(Icons.brightness_6, 'المظهر', 'داكن أو فاتح أو حسب النظام', _theme,
-              color: Colors.purple),
-          const SizedBox(height: 8),
-          _tile(Icons.font_download_outlined, 'الخط',
-              AppState.font.value == 'cairo' ? 'Cairo' : 'خط النظام', _font,
-              color: Colors.indigo),
+          _tile(Icons.palette_outlined, 'المظهر والألوان والخطوط',
+              'اللون والخلفية وشكل الزوايا والبطاقات ونوع الخط وحجمه',
+              () => _go(const AppearanceScreen()), color: Colors.purple),
           const SizedBox(height: 8),
           _tile(Icons.calendar_month, 'التقويم',
               AppState.hijri.value ? 'هجري (إزاحة ${AppState.hijriOffset})' : 'ميلادي',

@@ -7,7 +7,9 @@ import '../logic.dart';
 import '../app_state.dart';
 import '../report_engine.dart';
 import '../widgets.dart';
+import 'detailed_options.dart';
 import 'report_picker.dart';
+import 'table_editor.dart';
 
 class ExcelCenter extends StatefulWidget {
   final int initialTab; // 0 تصدير، 1 استيراد، 2 نماذج
@@ -26,11 +28,17 @@ class _ExcelCenterState extends State<ExcelCenter> {
   Scope? impScope, tplScope, tplMulti, tplMonth;
   int tplSem = 2;
   String log = '';
+  DetailedOptions detOpts = DetailedOptions();
 
   // ---------------- تصدير ----------------
   Future<void> _customize() async {
     final s = sel;
     if (s?.scope == null) return;
+    if (s!.meta.kind == RKind.detailedSheet) {
+      final o = await showDetailedOptions(context, detOpts);
+      if (o != null) setState(() => detOpts = o);
+      return;
+    }
     try {
       final data = await buildReport(s!.meta.kind, s.scope!,
           semester: s.semester, date: s.date);
@@ -90,11 +98,11 @@ class _ExcelCenterState extends State<ExcelCenter> {
     setState(() => busy = true);
     try {
       final data = await buildReport(s!.meta.kind, s.scope!,
-          semester: s.semester, date: s.date);
-      var t = data.table;
-      if (cols != null && colsKind == s.meta.kind) t = t.pick(cols!);
-      await exportTable(t,
+          semester: s.semester, date: s.date, detailed: detOpts);
+      final custom = cols != null && colsKind == s.meta.kind;
+      await shareReport(data,
           xlsx: xlsx,
+          table: custom ? data.table.pick(cols!) : null,
           withTitle: withTitle,
           school: await Db.setting('school'),
           year: await Db.setting('year'));
@@ -110,16 +118,54 @@ class _ExcelCenterState extends State<ExcelCenter> {
     try {
       final f = await pickAnyFile();
       if (f == null) return;
-      final rows = parseTableFile(f);
-      final msg = switch (importTarget) {
+      final msg = await _runImport(parseTableFile(f));
+      if (mounted) setState(() => log = msg);
+    } catch (e) {
+      if (mounted) setState(() => log = 'تعذر قراءة الملف: $e');
+    }
+  }
+
+  Future<String> _runImport(List<List<String>> rows) async => switch (importTarget) {
         0 => await _importStudents(rows),
         1 => await _importGrades(rows),
         2 => await _importGradesMulti(rows),
         _ => await _importMonthly(rows),
       };
-      if (mounted) setState(() => log = msg);
+
+  /// يفتح الملف في المحرر لتعديله قبل تطبيقه في النظام.
+  Future<void> _importEdit() async {
+    try {
+      final f = await pickAnyFile();
+      if (f == null) return;
+      final rows = parseTableFile(f);
+      if (rows.isEmpty) return toast(context, 'الملف فارغ');
+      if (!mounted) return;
+      await open(
+          context,
+          TableEditorScreen(
+            table: ExportTable(f.name, rows.first, rows.skip(1).toList()),
+            onApply: (all) async {
+              final m = await _runImport(all);
+              if (mounted) setState(() => log = m);
+              return m;
+            },
+          ));
     } catch (e) {
       if (mounted) setState(() => log = 'تعذر قراءة الملف: $e');
+    }
+  }
+
+  /// يبني التقرير المختار ويفتحه في المحرر التفاعلي.
+  Future<void> _openEditor() async {
+    final s = sel;
+    if (s?.scope == null) return;
+    try {
+      final data = await buildReport(s!.meta.kind, s.scope!,
+          semester: s.semester, date: s.date, detailed: detOpts);
+      if (!mounted) return;
+      await open(context, TableEditorScreen(table: data.table));
+    } catch (e) {
+      if (mounted) toast(context, 'تعذر الفتح: $e');
     }
   }
 
@@ -148,6 +194,7 @@ class _ExcelCenterState extends State<ExcelCenter> {
     final iNotes = _idx(head, ['ملاحظ']);
     final iReg = _idx(head, ['القيد', 'قيد', 'السجل']);
     var n = 0, skipped = 0;
+    final touched = <int>{};
     for (var k = hasHeader ? 1 : 0; k < rows.length; k++) {
       final r = rows[k];
       final name = _cell(r, hasHeader ? iName : 0);
@@ -180,14 +227,21 @@ class _ExcelCenterState extends State<ExcelCenter> {
         'status': 'مستجد',
         'reg_date': isoDate(DateTime.now()),
         if (reg != null) 'reg_no': reg,
-        });
+        }, reseat: false);
+        touched.add(cid);
         n++;
       } on LicenseLimitException catch (e) {
+        for (final c in touched) {
+          await Db.assignSeats(c);
+        }
         return 'توقف الاستيراد بعد $n طالب لأنك بلغت الحد المسموح (${e.limit}). '
             'تواصل مع المطور لتفعيل التطبيق ثم أعد استيراد الباقي.';
       }
     }
-    return 'تم استيراد $n طالب' + (skipped > 0 ? ' (تخطي $skipped صفاً فارغاً)' : '');
+    for (final c in touched) {
+      await Db.assignSeats(c);
+    }
+    return 'تم استيراد $n طالب (رُتّبوا أبجدياً في الجلوس)' + (skipped > 0 ? ' (تخطي $skipped صفاً فارغاً)' : '');
   }
 
   Future<String> _importGrades(List<List<String>> rows) async {
@@ -533,7 +587,7 @@ class _ExcelCenterState extends State<ExcelCenter> {
           if (busy) const LinearProgressIndicator(),
           FilledButton.icon(
               style: FilledButton.styleFrom(
-                  backgroundColor: Colors.teal.shade600,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14)),
               onPressed: busy ? null : () => _export(true),
               icon: const Icon(Icons.table_chart),
@@ -543,6 +597,11 @@ class _ExcelCenterState extends State<ExcelCenter> {
               onPressed: busy ? null : () => _export(false),
               icon: const Icon(Icons.description_outlined),
               label: const Text('تصدير كملف CSV (.csv) بترميز UTF-8')),
+          const SizedBox(height: 8),
+          TextButton.icon(
+              onPressed: _openEditor,
+              icon: const Icon(Icons.edit_note),
+              label: const Text('فتح محرر الجداول التفاعلي لتعديل الأعمدة والصفوف مباشرة')),
         ],
         if (tab == 1) ...[
           Text('استيراد من Excel أو CSV', style: Theme.of(context).textTheme.titleMedium),
@@ -583,6 +642,11 @@ class _ExcelCenterState extends State<ExcelCenter> {
               onPressed: _import,
               icon: const Icon(Icons.upload_file),
               label: const Text('اختيار ملف وبدء الاستيراد')),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+              onPressed: _importEdit,
+              icon: const Icon(Icons.edit_note),
+              label: const Text('فتح الملف في المحرر وتعديله قبل الاستيراد')),
           if (log.isNotEmpty) ...[
             const SizedBox(height: 12),
             Card(

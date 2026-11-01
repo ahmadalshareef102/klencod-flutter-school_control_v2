@@ -197,11 +197,14 @@ class Scope {
 class ScopeBar extends StatefulWidget {
   final bool subject, month;
   final int? initialClass;
+  final int monthFrom, monthTo;
   final ValueChanged<Scope> onChanged;
   const ScopeBar(
       {super.key,
       this.subject = false,
       this.month = false,
+      this.monthFrom = 1,
+      this.monthTo = 12,
       this.initialClass,
       required this.onChanged});
 
@@ -221,6 +224,7 @@ class _ScopeBarState extends State<ScopeBar> {
   void initState() {
     super.initState();
     classId = widget.initialClass ?? 1;
+    month = widget.monthFrom;
     _init();
   }
 
@@ -303,7 +307,7 @@ class _ScopeBarState extends State<ScopeBar> {
           label: 'الشهر',
           value: month,
           items: [
-            for (var m = 1; m <= 12; m++)
+            for (var m = widget.monthFrom; m <= widget.monthTo; m++)
               DropdownMenuItem(value: m, child: Text(monthName(m, hijri)))
           ],
           onChanged: (v) {

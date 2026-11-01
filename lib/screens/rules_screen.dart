@@ -50,11 +50,13 @@ class _RulesScreenState extends State<RulesScreen> {
   static const textKeys = {'ml_hw', 'ml_att', 'ml_oral', 'ml_written'};
   final ctrls = <String, TextEditingController>{};
   bool sep = true;
+  bool seatAlpha = true;
 
   @override
   void initState() {
     super.initState();
     Db.setting('separate_gender').then((v) => setState(() => sep = v == '1'));
+    Db.setting('seat_order').then((v) => setState(() => seatAlpha = v != 'reg'));
     for (final sec in sections) {
       for (final f in sec.$2) {
         ctrls[f.$1] = TextEditingController();
@@ -75,7 +77,11 @@ class _RulesScreenState extends State<RulesScreen> {
       }
     }
     await Db.setSetting('separate_gender', '1');
-    setState(() => sep = true);
+    await Db.setSetting('seat_order', 'alpha');
+    setState(() {
+      sep = true;
+      seatAlpha = true;
+    });
   }
 
   @override
@@ -112,6 +118,17 @@ class _RulesScreenState extends State<RulesScreen> {
             onChanged: (v) {
               setState(() => sep = v);
               Db.setSetting('separate_gender', v ? '1' : '0');
+            },
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('ترقيم الجلوس أبجدياً داخل كل صف'),
+            subtitle: const Text(
+                'الطالب الجديد (أو الذي نُسي) يدخل مكانه الأبجدي ويُعاد ترقيم من بعده'),
+            value: seatAlpha,
+            onChanged: (v) {
+              setState(() => seatAlpha = v);
+              Db.setSetting('seat_order', v ? 'alpha' : 'reg');
             },
           ),
           const SizedBox(height: 8),

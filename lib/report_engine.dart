@@ -12,7 +12,7 @@ import 'results_service.dart';
 import 'widgets.dart';
 
 enum RKind {
-  semesterCerts, notices, monthlySheet, yearWork, attendance, monthlyCerts, studentSemester,
+  semesterCerts, detailedSheet, notices, monthlySheet, yearWork, attendance, monthlyCerts, studentSemester,
   finalCerts, incomplete, sectionFull, noticesAll, gradeSheet, results,
   classList,
 }
@@ -35,6 +35,10 @@ const reportMetas = <RMeta>[
       'شهادة رسمية بإطار زخرفي: المحصلة والاختبار والمجموع والتقدير والترتيب.',
       Icons.workspace_premium_outlined,
       semester: true),
+  RMeta(RKind.detailedSheet, 'كشف درجات الطلاب الشامل المفصل (جميع الأشهر والواجبات والشفهي والتحريري والمحصلة)',
+      'جدول واحد بكل الأشهر ومكوناتها والمحصلة والامتحان والنتيجة، بمعادلات Excel حية.',
+      Icons.table_view_outlined,
+      subject: true, semester: true),
   RMeta(RKind.notices, 'إشعارات درجات (4 طلاب في الصفحة)',
       'إشعار رسمي لولي الأمر: الدرجات الشهرية ومعدل الأشهر واختبار المنتصف والمجموع.',
       Icons.mail_outline,
@@ -87,7 +91,38 @@ class ReportData {
   final ExportTable table;
   final Future<Uint8List> Function() pdf;
   final int count;
-  ReportData(this.table, this.pdf, this.count);
+  /// ملف xlsx غني (دمج ومعادلات) إن وُجد، وإلا يُستعمل الجدول البسيط.
+  final Future<Uint8List> Function()? richXlsx;
+  ReportData(this.table, this.pdf, this.count, {this.richXlsx});
+}
+
+/// خيارات الكشف المفصل (ترويسة وأعمدة ومستوى التفاصيل).
+class DetailedOptions {
+  bool full;
+  String title, year, subject, teacher;
+  bool regNo, exam, rating, signatures;
+  DetailedOptions({
+    this.full = true, this.title = '', this.year = '', this.subject = '',
+    this.teacher = '', this.regNo = true, this.exam = true,
+    this.rating = true, this.signatures = true,
+  });
+}
+
+/// يصدّر تقريراً: xlsx الغني إن وُجد، أو الجدول العادي.
+Future<void> shareReport(ReportData d,
+    {required bool xlsx,
+    ExportTable? table,
+    bool withTitle = false,
+    String school = '',
+    String year = ''}) async {
+  if (xlsx && d.richXlsx != null && table == null) {
+    final safe = d.table.title.replaceAll(RegExp(r'[\\/:*?"<>|\s]+'), '_');
+    await shareBytes('$safe.xlsx', await d.richXlsx!(),
+        mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return;
+  }
+  await exportTable(table ?? d.table,
+      xlsx: xlsx, withTitle: withTitle, school: school, year: year);
 }
 
 Future<String> _subjectName(int? id) async {
@@ -155,6 +190,306 @@ Future<_Term> _term(int sid, int subjectId, int sem, Rules rules,
 
 String _semName(int sem) =>
     sem == 0 ? 'الفصل الدراسي الأول' : sem == 1 ? 'الفصل الدراسي الثاني' : 'الفصلان معاً';
+
+String _fnum(double v) => v == v.roundToDouble() ? '${v.toInt()}' : '$v';
+double _r2(double v) => double.parse(v.toStringAsFixed(2));
+
+Future<ReportData> _detailedReport(Scope sc, int sem, List<DbRow> students, String cls,
+    String school, String yearSetting, bool hijri, DetailedOptions o) async {
+  if (sc.subjectId == null) throw StateError('اختر المادة أولاً');
+  final d = await Db.get();
+  final rules = await Rules.load();
+  final cfg = await MonthlyCfg.load();
+  final range = await _range(sem);
+  final subject = o.subject.isNotEmpty ? o.subject : await _subjectName(sc.subjectId);
+  final teacher = o.teacher.isNotEmpty ? o.teacher : await Db.setting('teacher');
+  final yearTxt = o.year.isNotEmpty ? o.year : yearSetting;
+  final semLabel = _semName(sem);
+  final title = o.title.isNotEmpty
+      ? o.title
+      : 'درجات أعمال السنة لـ$semLabel للعام الدراسي $yearTxt';
+  final maxW = sem == 0 ? rules.maxW1 : rules.maxW2;
+  final maxE = sem == 0 ? rules.maxE1 : rules.maxE2;
+  final ms = [for (var m = range.$1; m <= range.$2; m++) m];
+  final factor = cfg.total / (cfg.convertTo == 0 ? 1 : cfg.convertTo);
+  final fs = _fnum(factor);
+
+  // ---- بيانات الطلاب ----
+  final recs = <({DbRow st, Map<int, DbRow> byMonth, DbRow? g})>[];
+  for (final st in students) {
+    final mr = await d.query('monthly',
+        where: 'student_id=? AND subject_id=? AND month BETWEEN ? AND ?',
+        whereArgs: [st['id'], sc.subjectId, range.$1, range.$2]);
+    final g = await d.query('grades',
+        where: 'student_id=? AND subject_id=?', whereArgs: [st['id'], sc.subjectId]);
+    recs.add((st: st, byMonth: {for (final m in mr) m['month'] as int: m}, g: g.isEmpty ? null : g.first));
+  }
+
+  // ---- تخطيط الأعمدة ----
+  var col = 0;
+  final cNo = col++;
+  final cReg = o.regNo ? col++ : -1;
+  final cName = col++;
+  final cCls = col++;
+  final cSec = col++;
+  final infoLast = col - 1;
+  final per = o.full ? 6 : 2;
+  final monthStart = col;
+  col += ms.length * per;
+  final cSum = col++;
+  final cWork = col++;
+  final cExam = o.exam ? col++ : -1;
+  final cFinal = col++;
+  final cRate = o.rating ? col++ : -1;
+  final cPct = o.rating ? col++ : -1;
+  final cNote = col++;
+  final nc = col;
+  final r0 = 5, n = recs.length;
+  final avgRow = r0 + n, sigRow = r0 + n + 2;
+  final rows = <List<XCell?>>[
+    for (var i = 0; i < sigRow + 1; i++) List<XCell?>.filled(nc, null)
+  ];
+  final merges = <String>[];
+  void merge(int r, int c1, int c2) {
+    if (c2 > c1) merges.add('${colLetter(c1)}${r + 1}:${colLetter(c2)}${r + 1}');
+  }
+
+  void put(int r, int c, XCell cell) => rows[r][c] = cell;
+  void fillStyle(int r, int c1, int c2, int style) {
+    for (var c = c1; c <= c2; c++) {
+      rows[r][c] ??= XCell.text('', style);
+    }
+  }
+
+  // ---- الترويسة ----
+  final rightW = (nc ~/ 4).clamp(3, 8).toInt();
+  put(0, 0, const XCell.text('الجمهورية اليمنية\nوزارة التربية والتعليم', 8));
+  fillStyle(0, 0, infoLast, 8);
+  merge(0, 0, infoLast);
+  put(0, infoLast + 1, XCell.text(school.isEmpty ? 'مكتب التربية والتعليم' : school, 8));
+  fillStyle(0, infoLast + 1, nc - rightW - 1, 8);
+  merge(0, infoLast + 1, nc - rightW - 1);
+  put(0, nc - rightW, XCell.text('العام الدراسي: $yearTxt\n$semLabel', 8));
+  fillStyle(0, nc - rightW, nc - 1, 8);
+  merge(0, nc - rightW, nc - 1);
+
+  put(1, 0, XCell.text(title, 4));
+  merge(1, 0, nc - 1);
+
+  final q = nc ~/ 4;
+  final seg = [0, q, 2 * q, 3 * q, nc];
+  final infoTexts = [
+    'المادة: $subject',
+    'الصف: $cls    الشعبة: ${sc.section ?? 'جميع الشعب'}',
+    'معلم المادة: ${teacher.isEmpty ? '.................' : teacher}',
+    'إجمالي الطلاب: $n طالب',
+  ];
+  for (var i = 0; i < 4; i++) {
+    put(2, seg[i], XCell.text(infoTexts[i], 8));
+    fillStyle(2, seg[i], seg[i + 1] - 1, 8);
+    merge(2, seg[i], seg[i + 1] - 1);
+  }
+
+  // ---- ترويسة المجموعات والأعمدة ----
+  put(3, 0, const XCell.text('بيانات الطالب', 6));
+  fillStyle(3, 0, infoLast, 6);
+  merge(3, 0, infoLast);
+  for (var i = 0; i < ms.length; i++) {
+    final b = monthStart + i * per;
+    put(3, b, XCell.text(monthName(ms[i], hijri), 6));
+    fillStyle(3, b, b + per - 1, 6);
+    merge(3, b, b + per - 1);
+  }
+  put(3, cSum, const XCell.text('النتيجة النهائية', 6));
+  fillStyle(3, cSum, nc - 1, 6);
+  merge(3, cSum, nc - 1);
+
+  put(4, cNo, const XCell.text('الرقم', 2));
+  if (cReg >= 0) put(4, cReg, const XCell.text('رقم القيد', 2));
+  put(4, cName, const XCell.text('اسم الطالب', 2));
+  put(4, cCls, const XCell.text('الصف', 2));
+  put(4, cSec, const XCell.text('الشعبة', 2));
+  final compHeads = [
+    for (var k = 0; k < 4; k++) '${cfg.labels[k]} (${nf(cfg.maxes[k])})'
+  ];
+  for (var i = 0; i < ms.length; i++) {
+    final b = monthStart + i * per;
+    var c = b;
+    if (o.full) {
+      for (final h in compHeads) {
+        put(4, c++, XCell.text(h, 2));
+      }
+    }
+    put(4, c++, XCell.text('المجموع (${nf(cfg.total)})', 2));
+    put(4, c, XCell.text('المحصلة (${nf(cfg.convertTo)})', 2));
+  }
+  put(4, cSum, const XCell.text('مجموع المحصلات', 2));
+  put(4, cWork, XCell.text('المحصلة (${nf(maxW)})', 2));
+  if (cExam >= 0) put(4, cExam, XCell.text('الامتحان (${nf(maxE)})', 2));
+  put(4, cFinal, XCell.text('النتيجة النهائية (${nf(maxW + (o.exam ? maxE : 0))})', 2));
+  if (cRate >= 0) {
+    put(4, cRate, const XCell.text('التقدير', 2));
+    put(4, cPct, const XCell.text('النسبة %', 2));
+  }
+  put(4, cNote, const XCell.text('ملاحظات', 2));
+
+  // ---- صفوف الطلاب ----
+  final totalMax = maxW + (o.exam ? maxE : 0);
+  String rateOf(double pct) => rules.rating(pct);
+  final avgCols = <int, List<double>>{};
+  void collect(int c, double v) => (avgCols[c] ??= []).add(v);
+  final flat = <List<String>>[];
+  final pdfRows = <List<String>>[];
+
+  for (var i = 0; i < n; i++) {
+    final r = r0 + i, rn = r + 1;
+    final st = recs[i].st, byMonth = recs[i].byMonth, g = recs[i].g;
+    put(r, cNo, XCell.num(i + 1.0));
+    if (cReg >= 0) put(r, cReg, XCell.text('${st['reg_no'] ?? ''}'));
+    put(r, cName, XCell.text('${st['name']}', 5));
+    put(r, cCls, XCell.text(cls));
+    put(r, cSec, XCell.text('${st['section'] ?? ''}'));
+    final convRefs = <String>[];
+    final convVals = <double>[];
+    final flatMonth = <String>[];
+    final pdfMonth = <String>[];
+    for (var k = 0; k < ms.length; k++) {
+      final b = monthStart + k * per;
+      final m = byMonth[ms[k]];
+      final vals = [
+        for (final key in ['hw', 'att', 'oral', 'written']) (m?[key] as num?)?.toDouble() ?? 0.0
+      ];
+      final total = vals.fold<double>(0, (a, e) => a + e);
+      final conv = _r2(total / factor);
+      var c = b;
+      if (o.full) {
+        for (final v in vals) {
+          put(r, c++, XCell.num(v));
+        }
+        put(r, c, XCell.formula('SUM(${colLetter(b)}$rn:${colLetter(b + 3)}$rn)', n: total));
+        c++;
+        flatMonth.addAll([...vals.map(nf), nf(total)]);
+      } else {
+        put(r, c++, XCell.num(total));
+        flatMonth.add(nf(total));
+      }
+      final totRef = '${colLetter(c - 1)}$rn';
+      put(r, c, XCell.formula('ROUND($totRef/$fs,2)', n: conv));
+      flatMonth.add(nf(conv));
+      pdfMonth.add(nf(conv));
+      convRefs.add('${colLetter(c)}$rn');
+      convVals.add(conv);
+      collect(c, conv);
+      collect(c - 1, total);
+    }
+    final sumConv = convVals.fold<double>(0, (a, e) => a + e);
+    put(r, cSum, XCell.formula('SUM(${convRefs.join(',')})', n: sumConv));
+    collect(cSum, sumConv);
+    final pos = convVals.where((v) => v > 0).toList();
+    final avg = pos.isEmpty ? 0.0 : pos.reduce((a, b) => a + b) / pos.length;
+    final scale = cfg.convertTo == maxW ? '' : '/${_fnum(cfg.convertTo)}*${_fnum(maxW)}';
+    final work = _r2(avg * (cfg.convertTo == maxW ? 1 : maxW / cfg.convertTo));
+    final posSum = convRefs.map((x) => 'IF($x>0,$x,0)').join('+');
+    final posCnt = convRefs.map((x) => 'IF($x>0,1,0)').join('+');
+    put(r, cWork, XCell.formula(
+        'IFERROR(ROUND(($posSum)/(MAX(1,$posCnt))$scale,2),0)', n: work));
+    collect(cWork, work);
+    final exam = (g?[sem == 0 ? 't1_exam' : 't2_exam'] as num?)?.toDouble() ?? 0.0;
+    if (cExam >= 0) {
+      put(r, cExam, XCell.num(exam));
+      collect(cExam, exam);
+    }
+    final fin = work + (o.exam ? exam : 0);
+    put(r, cFinal, XCell.formula(
+        o.exam ? '${colLetter(cWork)}$rn+${colLetter(cExam)}$rn' : '${colLetter(cWork)}$rn', n: fin));
+    collect(cFinal, fin);
+    final pct = totalMax == 0 ? 0.0 : fin / totalMax * 100;
+    final rate = fin == 0 ? '-' : rateOf(pct);
+    if (cRate >= 0) {
+      final f = '${colLetter(cFinal)}$rn';
+      final p = '$f/${_fnum(totalMax)}*100';
+      put(r, cRate, XCell.formula(
+          'IF($f=0,"-",IF($p>=${_fnum(rules.excellent)},"ممتاز",IF($p>=${_fnum(rules.veryGood)},"جيد جداً",IF($p>=${_fnum(rules.good)},"جيد",IF($p>=${_fnum(rules.ok)},"مقبول","ضعيف")))))',
+          str: rate));
+      put(r, cPct, XCell.formula('IFERROR(ROUND($p,1),0)', n: double.parse(pct.toStringAsFixed(1))));
+      collect(cPct, pct);
+    }
+    put(r, cNote, XCell.text('${st['notes'] ?? ''}', 5));
+    flat.add([
+      '${i + 1}', if (cReg >= 0) '${st['reg_no'] ?? ''}', '${st['name']}', cls,
+      '${st['section'] ?? ''}', ...flatMonth, nf(sumConv), nf(work),
+      if (cExam >= 0) nf(exam), nf(fin),
+      if (cRate >= 0) rate, if (cRate >= 0) pct.toStringAsFixed(1), '${st['notes'] ?? ''}',
+    ]);
+    pdfRows.add([
+      '${i + 1}', '${st['name']}', ...pdfMonth, nf(work),
+      if (cExam >= 0) nf(exam), nf(fin), if (cRate >= 0) rate,
+    ]);
+  }
+
+  // ---- صف المتوسط ----
+  put(avgRow, 0, const XCell.text('المتوسط العام للدرجات', 9));
+  fillStyle(avgRow, 0, infoLast, 9);
+  merge(avgRow, 0, infoLast);
+  for (final e in avgCols.entries) {
+    final c = e.key;
+    final v = e.value;
+    final mean = v.isEmpty ? 0.0 : v.reduce((a, b) => a + b) / v.length;
+    put(avgRow, c, XCell.formula(
+        'ROUND(AVERAGE(${colLetter(c)}${r0 + 1}:${colLetter(c)}$avgRow),2)',
+        n: _r2(mean), s: 9));
+  }
+  if (cRate >= 0) put(avgRow, cRate, XCell.text('عدد الطلاب: $n', 9));
+  fillStyle(avgRow, monthStart, nc - 1, 9);
+
+  // ---- التواقيع ----
+  if (o.signatures) {
+    final seg3 = [0, nc ~/ 3, 2 * (nc ~/ 3), nc];
+    final sig = [
+      'معلم المادة: ${teacher.isEmpty ? '.....................' : teacher}\nالتوقيع: .....................',
+      'المرشد الطلابي: .....................\nالتوقيع: .....................',
+      'مدير المدرسة: .....................\nالختم الرسمي: .....................',
+    ];
+    for (var i = 0; i < 3; i++) {
+      put(sigRow, seg3[i], XCell.text(sig[i], 7));
+      fillStyle(sigRow, seg3[i], seg3[i + 1] - 1, 7);
+      merge(sigRow, seg3[i], seg3[i + 1] - 1);
+    }
+  } else {
+    rows.removeLast();
+  }
+
+  final widths = <int, double>{
+    cNo: 5, if (cReg >= 0) cReg: 12, cName: 24, cCls: 14, cSec: 8,
+    for (var c = monthStart; c < cSum; c++) c: 9,
+    cSum: 11, cWork: 11, if (cExam >= 0) cExam: 10, cFinal: 12,
+    if (cRate >= 0) cRate: 10, if (cRate >= 0) cPct: 9, cNote: 20,
+  };
+  final heights = <int, double>{0: 40, 1: 28, 2: 22, 3: 20, 4: 38, if (o.signatures) sigRow: 50};
+
+  final heads = [
+    'الرقم', if (cReg >= 0) 'رقم القيد', 'اسم الطالب', 'الصف', 'الشعبة',
+    for (final m in ms) ...[
+      if (o.full) for (final h in compHeads) '${monthName(m, hijri)} - $h',
+      '${monthName(m, hijri)} - المجموع', '${monthName(m, hijri)} - المحصلة',
+    ],
+    'مجموع المحصلات', 'المحصلة', if (cExam >= 0) 'الامتحان', 'النتيجة النهائية',
+    if (cRate >= 0) 'التقدير', if (cRate >= 0) 'النسبة %', 'ملاحظات',
+  ];
+  final pdfHeads = [
+    'م', 'اسم الطالب', for (final m in ms) monthName(m, hijri), 'المحصلة',
+    if (cExam >= 0) 'الامتحان', 'النتيجة', if (cRate >= 0) 'التقدير',
+  ];
+  final fullTitle = '$title - $subject - $cls';
+  return ReportData(
+    ExportTable(fullTitle, heads, flat),
+    () => buildTableReport(fullTitle, pdfHeads, pdfRows, school, yearTxt,
+        landscape: true, flex: [0.7, 4, for (var i = 2; i < pdfHeads.length; i++) 1.2]),
+    n,
+    richXlsx: () async => buildXlsxSheet('كشف الدرجات الشامل المفصل', rows,
+        merges: merges, colWidths: widths, rowHeights: heights),
+  );
+}
 
 class _Calc {
   final List<List<String>> rows = [];
@@ -257,7 +592,7 @@ Future<ReportData> _certReport(Scope sc, int sem, int? onlyStudent, String year)
 }
 
 Future<ReportData> buildReport(RKind kind, Scope sc,
-    {int semester = 0, DateTime? date, int? onlyStudent}) async {
+    {int semester = 0, DateTime? date, int? onlyStudent, DetailedOptions? detailed}) async {
   final school = await Db.setting('school');
   final year = await Db.setting('year');
   final cls = await Db.className(sc.classId);
@@ -322,6 +657,10 @@ Future<ReportData> buildReport(RKind kind, Scope sc,
       return ReportData(ExportTable(title, h2, rows),
           () => buildTableReport(title, h2, rows, school, year, flex: [1, 5, 2, 2, 2, 2]),
           rows.length);
+
+    case RKind.detailedSheet:
+      return _detailedReport(sc, semester == 1 ? 1 : 0, students, cls, school, year, hijri,
+          detailed ?? DetailedOptions());
 
     case RKind.notices:
       if (sc.subjectId == null) throw StateError('اختر المادة أولاً');

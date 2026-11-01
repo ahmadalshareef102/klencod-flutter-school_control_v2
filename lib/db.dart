@@ -1,5 +1,6 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import 'distribution.dart' show alphaKey;
 import 'license.dart';
 import 'logic.dart';
 
@@ -29,7 +30,10 @@ class Db {
   static const defaults = {
     'school': '', 'teacher': '', 'year': '1448هـ',
     'theme': 'dark', 'font': 'system', 'keypad': '1',
-    'cert_office': '', 'cert_admin': '', 'cert_control_head': '',
+    'accent': '', 'bg_dark': '0', 'bg_light': '0', 'radius': '18',
+    'card_style': '0', 'input_outlined': '0', 'compact': '0',
+    'font_scale': '1.0', 'font_title': 'same',
+    'seat_order': 'alpha', 'cert_office': '', 'cert_admin': '', 'cert_control_head': '',
     'cert_principal': '', 'cert_vice': '', 'cert_bg': '1', 'cert_frame': '1',
     'cert_emblem': '', 'cert_logo': '', 'cert_stamp': '',
     'sem1_from': '1', 'sem1_to': '3', 'sem2_from': '4', 'sem2_to': '6', 'calendar': 'hijri', 'hijri_offset': '0',
@@ -182,20 +186,28 @@ class Db {
       Sqflite.firstIntValue(await (await get()).rawQuery(sql, args)) ?? 0;
 
   // ---------- الطلاب ----------
-  static Future<int> addStudent(DbRow m) async {
+  /// عدد الطلاب الذين تغيّر رقم جلوسهم في آخر إعادة ترقيم.
+  static int lastSeatShift = 0;
+
+  static Future<int> addStudent(DbRow m, {bool reseat = true}) async {
     await License.ensureCanAdd();
     final d = await get();
     final id = await d.insert('students', m);
     await d.update('students', {'reg_no': m['reg_no'] ?? 1000 + id},
         where: 'id=?', whereArgs: [id]);
-    await assignSeats(m['class_id'] as int);
+    if (reseat) await assignSeats(m['class_id'] as int);
     return id;
   }
 
   static Future<void> updateStudent(int id, DbRow m) async {
     final d = await get();
+    final old = await d.query('students', columns: ['class_id'], where: 'id=?', whereArgs: [id]);
     await d.update('students', m, where: 'id=?', whereArgs: [id]);
-    if (m['class_id'] != null) await assignSeats(m['class_id'] as int);
+    if (m['class_id'] != null) {
+      await assignSeats(m['class_id'] as int);
+      final oldClass = old.isEmpty ? null : old.first['class_id'] as int?;
+      if (oldClass != null && oldClass != m['class_id']) await assignSeats(oldClass);
+    }
   }
 
   static Future<void> deleteStudent(int id) async {
@@ -208,17 +220,56 @@ class Db {
     if (r.isNotEmpty) await assignSeats(r.first['class_id'] as int);
   }
 
-  /// يعيد ترقيم الجلوس للصف تسلسلياً بحسب ترتيب القيد.
-  static Future<void> assignSeats(int classId) async {
+  /// يعيد ترقيم الجلوس للصف: أبجدياً (الافتراضي) أو حسب ترتيب القيد.
+  /// يعيد عدد الطلاب الذين تغيّر رقمهم.
+  static Future<int> assignSeats(int classId, {String? order}) async {
     final d = await get();
-    final start = (await d.query('classes', where: 'id=?', whereArgs: [classId]))
-        .first['seat_start'] as int;
+    final cls = await d.query('classes', where: 'id=?', whereArgs: [classId]);
+    if (cls.isEmpty) return 0;
+    final start = cls.first['seat_start'] as int;
+    final mode = order ?? await setting('seat_order');
     final st = await d.query('students',
-        where: 'class_id=?', whereArgs: [classId], orderBy: 'id');
-    for (var i = 0; i < st.length; i++) {
-      await d.update('students', {'seat_no': start + i},
-          where: 'id=?', whereArgs: [st[i]['id']]);
+        columns: ['id', 'name', 'seat_no'],
+        where: 'class_id=?',
+        whereArgs: [classId]);
+    final list = [...st];
+    if (mode == 'reg') {
+      list.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
+    } else {
+      list.sort((a, b) {
+        final c = alphaKey('${a['name']}').compareTo(alphaKey('${b['name']}'));
+        return c != 0 ? c : (a['id'] as int).compareTo(b['id'] as int);
+      });
     }
+    var changed = 0;
+    final batch = d.batch();
+    for (var i = 0; i < list.length; i++) {
+      final seat = start + i;
+      if (list[i]['seat_no'] != seat) {
+        changed++;
+        batch.update('students', {'seat_no': seat},
+            where: 'id=?', whereArgs: [list[i]['id']]);
+      }
+    }
+    await batch.commit(noResult: true);
+    lastSeatShift = changed;
+    return changed;
+  }
+
+  /// يعيد ترقيم الجلوس لكل الصفوف؛ يعيد إجمالي من تغيّر رقمه.
+  static Future<int> reseatAll({String? order}) async {
+    var total = 0;
+    for (final c in await classes()) {
+      total += await assignSeats(c['id'] as int, order: order);
+    }
+    return total;
+  }
+
+  /// رقم جلوس طالب.
+  static Future<int?> seatOf(int id) async {
+    final r = await (await get())
+        .query('students', columns: ['seat_no'], where: 'id=?', whereArgs: [id]);
+    return r.isEmpty ? null : r.first['seat_no'] as int?;
   }
 
   // ---------- الدرجات ----------

@@ -126,15 +126,35 @@ class _StudentsTabState extends State<StudentsTab> {
           'class_id': cid,
           'section': sec.text.trim().isEmpty ? 'أ' : sec.text.trim(),
           'status': 'مستجد',
-        });
+        }, reseat: false);
         n++;
       } on LicenseLimitException catch (e) {
         hitLimit = e.limit;
         break;
       }
     }
-    if (mounted) toast(context, 'تمت إضافة $n طالب');
+    if (n > 0) await Db.assignSeats(cid);
+    if (mounted) toast(context, 'تمت إضافة $n طالب بالترتيب الأبجدي');
     if (hitLimit != null && mounted) await showLimitDialog(context, hitLimit);
+    _load();
+  }
+
+  /// إعادة ترقيم الجلوس لصف (أو لكل الصفوف) أبجدياً أو حسب القيد.
+  Future<void> _reseat(String order) async {
+    final what = classId == null ? 'لكل الصفوف' : 'للصف المختار';
+    final how = order == 'alpha' ? 'أبجدياً' : 'حسب ترتيب القيد';
+    if (!await confirmDialog(
+        context,
+        'سيُعاد ترقيم الجلوس $what $how.\n'
+        'إن كنت قد وزّعت اللجان أو طبعت بطاقات الجلوس فأعد طباعتها بعد ذلك.',
+        ok: 'إعادة الترقيم')) {
+      return;
+    }
+    final n = classId == null
+        ? await Db.reseatAll(order: order)
+        : await Db.assignSeats(classId!, order: order);
+    await Db.setSetting('seat_order', order);
+    if (mounted) toast(context, 'تمت إعادة الترقيم • تغيّر رقم جلوس $n طالب');
     _load();
   }
 
@@ -177,9 +197,18 @@ class _StudentsTabState extends State<StudentsTab> {
     return Column(children: [
       PageHeader('قائمة الطلاب',
           subtitle: 'العام الدراسي $year',
-          trailing: Chip(
-              label: Text('${rows.length} طالب'),
-              backgroundColor: cs.primaryContainer)),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            Chip(label: Text('${rows.length} طالب'), backgroundColor: cs.primaryContainer),
+            PopupMenuButton<String>(
+              tooltip: 'ترتيب الجلوس',
+              icon: const Icon(Icons.sort_by_alpha),
+              onSelected: _reseat,
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'alpha', child: Text('ترتيب أبجدي وإعادة ترقيم الجلوس')),
+                PopupMenuItem(value: 'reg', child: Text('الترقيم حسب ترتيب القيد')),
+              ],
+            ),
+          ])),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: TextField(

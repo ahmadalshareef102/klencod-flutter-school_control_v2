@@ -17,8 +17,10 @@ class GradesTab extends StatefulWidget {
 }
 
 class _GradesTabState extends State<GradesTab> {
-  bool monthly = false;
-  int term = 0; // 0 الأول، 1 الثاني، 2 الكل
+  int sem = 0; // 0 الفصل الأول، 1 الفصل الثاني
+  int mode = 0; // 0 شهري، 1 المحصلة، 2 الاختبار
+  bool get monthly => mode == 0;
+  int mFrom = 1, mTo = 12;
   Scope? scope;
   Rules? rules;
   MonthlyCfg? cfg;
@@ -39,6 +41,7 @@ class _GradesTabState extends State<GradesTab> {
     Db.setting('keypad').then((v) {
       if (mounted) setState(() => keypad = v != '0');
     });
+    _setSem(0);
   }
 
   Future<void> _load() async {
@@ -67,14 +70,24 @@ class _GradesTabState extends State<GradesTab> {
         ('oral', c.labels[2], c.oral), ('written', c.labels[3], c.written),
       ];
     }
-    final t1 = <_Field>[('t1_work', 'المحصلة', r.maxW1), ('t1_exam', 'الاختبار', r.maxE1)];
-    final t2 = <_Field>[('t2_work', 'المحصلة', r.maxW2), ('t2_exam', 'الاختبار', r.maxE2)];
-    if (term == 0) return t1;
-    if (term == 1) return t2;
-    return [
-      ('t1_work', 'محصلة 1', r.maxW1), ('t1_exam', 'اختبار 1', r.maxE1),
-      ('t2_work', 'محصلة 2', r.maxW2), ('t2_exam', 'اختبار 2', r.maxE2),
-    ];
+    final _Field w = sem == 0
+        ? ('t1_work', 'المحصلة (من الأشهر)', r.maxW1)
+        : ('t2_work', 'المحصلة (من الأشهر)', r.maxW2);
+    final _Field e = sem == 0
+        ? ('t1_exam', 'اختبار المنتصف', r.maxE1)
+        : ('t2_exam', 'اختبار نهاية الفصل', r.maxE2);
+    return mode == 1 ? [w] : [e];
+  }
+
+  /// يضبط الفصل ونطاق أشهره من الإعدادات.
+  Future<void> _setSem(int v) async {
+    sem = v;
+    final f = int.tryParse(await Db.setting('sem${v + 1}_from')) ?? 1;
+    final t = int.tryParse(await Db.setting('sem${v + 1}_to')) ?? 12;
+    mFrom = f.clamp(1, 12).toInt();
+    mTo = (t < f ? f : t).clamp(1, 12).toInt();
+    selId = null;
+    if (mounted) setState(() {});
   }
 
   double _sum(DbRow r) => fields.fold<double>(
@@ -230,8 +243,8 @@ class _GradesTabState extends State<GradesTab> {
                   child: child)
               : FilledButton(
                   style: FilledButton.styleFrom(
-                      backgroundColor: bg ?? Colors.teal.shade700,
-                      foregroundColor: fg ?? Colors.white,
+                      backgroundColor: bg ?? Theme.of(context).colorScheme.primary,
+                      foregroundColor: fg ?? Theme.of(context).colorScheme.onPrimary,
                       padding: EdgeInsets.zero),
                   onPressed: f,
                   child: child),
@@ -255,7 +268,7 @@ class _GradesTabState extends State<GradesTab> {
           Expanded(
             child: FilledButton(
               style: FilledButton.styleFrom(
-                  backgroundColor: Colors.teal.shade700,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                   minimumSize: const Size(0, 48)),
               onPressed: () => setState(() => selId = null),
               child: const Text('تم'),
@@ -363,7 +376,7 @@ class _GradesTabState extends State<GradesTab> {
         case 'csv':
           final data = await buildReport(
               monthly ? RKind.monthlySheet : RKind.gradeSheet, sc,
-              semester: term == 1 ? 1 : 0);
+              semester: sem);
           if (v == 'print') await printPdf(await data.pdf(), data.table.title);
           if (v == 'share') {
             await printPdf(await data.pdf(), data.table.title, share: true);
@@ -525,9 +538,8 @@ class _GradesTabState extends State<GradesTab> {
     final showPad = keypad && selId != null;
     return Column(children: [
       PageHeader('رصد درجات الطلاب',
-          subtitle: monthly
-              ? 'الرصد الشهري (${c == null ? '' : '${nf(c.total)} ← ${nf(c.convertTo)}'})'
-              : 'الرصد الفصلي',
+          subtitle:
+              '${sem == 0 ? 'الفصل الدراسي الأول' : 'الفصل الدراسي الثاني'} • ${mode == 0 ? 'الشهري' : mode == 1 ? 'المحصلة' : 'الاختبار'}',
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
             Chip(label: Text('${rows.length} طالب'), backgroundColor: cs.primaryContainer),
             IconButton(
@@ -540,39 +552,50 @@ class _GradesTabState extends State<GradesTab> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(children: [
-            SegmentedButton<bool>(
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text('الفصل الدراسي النشط',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.primary)),
+            ),
+            const SizedBox(height: 6),
+            SegmentedButton<int>(
               segments: const [
-                ButtonSegment(value: false, label: Text('فصلي'), icon: Icon(Icons.school_outlined)),
-                ButtonSegment(value: true, label: Text('شهري'), icon: Icon(Icons.calendar_month)),
+                ButtonSegment(value: 0, label: Text('الفصل الأول')),
+                ButtonSegment(value: 1, label: Text('الفصل الثاني')),
               ],
-              selected: {monthly},
-              onSelectionChanged: (s) {
-                monthly = s.first;
+              selected: {sem},
+              onSelectionChanged: (s) async {
+                await _setSem(s.first);
                 _load();
               },
             ),
-            if (!monthly) ...[
-              const SizedBox(height: 8),
-              SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment(value: 0, label: Text('الفصل الأول')),
-                  ButtonSegment(value: 1, label: Text('الفصل الثاني')),
-                  ButtonSegment(value: 2, label: Text('الكل')),
-                ],
-                selected: {term},
-                onSelectionChanged: (s) => setState(() {
-                  term = s.first;
-                  selId = null;
-                }),
-              ),
-            ],
             const SizedBox(height: 10),
             ScopeBar(
-              key: ValueKey(monthly),
+              key: ValueKey('$sem-$mFrom-$mTo-$monthly'),
               subject: true,
               month: monthly,
+              monthFrom: mFrom,
+              monthTo: mTo,
               onChanged: (s) {
                 scope = s;
+                _load();
+              },
+            ),
+            const SizedBox(height: 10),
+            SegmentedButton<int>(
+              segments: [
+                ButtonSegment(
+                    value: 0,
+                    label: Text('الشهري (${c == null ? '100' : nf(c.total)}→${c == null ? '20' : nf(c.convertTo)})')),
+                ButtonSegment(
+                    value: 1, label: Text('المحصلة (${rules == null ? '' : nf(sem == 0 ? rules!.maxW1 : rules!.maxW2)})')),
+                ButtonSegment(
+                    value: 2, label: Text('الاختبار (${rules == null ? '' : nf(sem == 0 ? rules!.maxE1 : rules!.maxE2)})')),
+              ],
+              selected: {mode},
+              onSelectionChanged: (s) {
+                mode = s.first;
+                selId = null;
                 _load();
               },
             ),
@@ -634,7 +657,7 @@ class _GradesTabState extends State<GradesTab> {
                                       padding: const EdgeInsets.symmetric(horizontal: 3),
                                       child: TextFormField(
                                         key: ValueKey(
-                                            '${r['id']}-${f.$1}-${scope?.subjectId}-${scope?.month}-$monthly-$term'),
+                                            '${r['id']}-${f.$1}-${scope?.subjectId}-${scope?.month}-$mode-$sem'),
                                         initialValue: nf(r[f.$1] as num?),
                                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                         textAlign: TextAlign.center,
@@ -667,7 +690,7 @@ class _GradesTabState extends State<GradesTab> {
               border: Border(top: BorderSide(color: cs.outlineVariant))),
           child: Row(children: [
             Expanded(
-                child: Text('${rows.length} طالب • تُحفظ الدرجات تلقائياً',
+                child: Text('تم تحميل ${rows.length} طالب - ${sem == 0 ? 'الفصل الأول' : 'الفصل الثاني'}',
                     style: Theme.of(context).textTheme.bodySmall)),
             FilledButton.icon(
                 onPressed: () => toast(context, 'تم حفظ جميع الدرجات'),

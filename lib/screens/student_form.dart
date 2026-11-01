@@ -104,7 +104,18 @@ class _StudentFormState extends State<StudentForm> {
     };
     if (widget.id == null) {
       try {
-        await Db.addStudent(m);
+        final id = await Db.addStudent(m);
+        final seat = await Db.seatOf(id);
+        final shifted = Db.lastSeatShift;
+        final alpha = (await Db.setting('seat_order')) != 'reg';
+        if (mounted) {
+          toast(
+              context,
+              alpha
+                  ? 'أُدرج الطالب بترتيبه الأبجدي • رقم جلوسه $seat'
+                      '${shifted > 1 ? ' • تغيّر رقم جلوس ${shifted - 1} طالب بعده' : ''}'
+                  : 'تمت الإضافة • رقم جلوسه $seat');
+        }
       } on LicenseLimitException catch (e) {
         if (mounted) await showLimitDialog(context, e.limit);
         return;

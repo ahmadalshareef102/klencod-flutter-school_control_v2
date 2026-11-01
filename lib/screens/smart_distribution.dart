@@ -462,7 +462,7 @@ class _SmartDistributionState extends State<SmartDistributionScreen> {
       const SizedBox(height: 12),
       FilledButton.icon(
         style: FilledButton.styleFrom(
-            backgroundColor: Colors.teal.shade700, padding: const EdgeInsets.symmetric(vertical: 14)),
+            backgroundColor: Theme.of(context).colorScheme.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
         onPressed: _approve,
         icon: const Icon(Icons.verified),
         label: const Text('اعتماد التوزيع وحفظه'),

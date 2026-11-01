@@ -1,7 +1,7 @@
 name: school_control
 description: الكنترول المدرسي - إدارة القيد ورصد الدرجات واستخراج النتائج
 publish_to: 'none'
-version: 2.4.0+11
+version: 2.6.0+13
 
 environment:
   sdk: '>=3.6.0 <4.0.0'
@@ -40,3 +40,18 @@ flutter:
           weight: 400
         - asset: assets/fonts/Cairo-Bold.ttf
           weight: 700
+    - family: MohammadBold
+      fonts:
+        - asset: assets/fonts/MohammadBold.ttf
+    - family: MohammadHead
+      fonts:
+        - asset: assets/fonts/MohammadHead.ttf
+    - family: MohammadLaha
+      fonts:
+        - asset: assets/fonts/MohammadLaha.ttf
+    - family: Aldhabi
+      fonts:
+        - asset: assets/fonts/Aldhabi.ttf
+    - family: ArabicTypesetting
+      fonts:
+        - asset: assets/fonts/ArabicTypesetting.ttf

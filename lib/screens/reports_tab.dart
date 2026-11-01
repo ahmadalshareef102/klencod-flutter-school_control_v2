@@ -5,6 +5,7 @@ import '../pdf_reports.dart';
 import '../report_engine.dart';
 import '../widgets.dart';
 import 'committees.dart';
+import 'detailed_options.dart';
 import 'excel_center.dart';
 import 'report_picker.dart';
 import 'results.dart';
@@ -18,6 +19,7 @@ class ReportsTab extends StatefulWidget {
 
 class _ReportsTabState extends State<ReportsTab> {
   ReportSel? sel;
+  DetailedOptions det = DetailedOptions();
   bool busy = false;
   String year = '';
 
@@ -35,16 +37,16 @@ class _ReportsTabState extends State<ReportsTab> {
     setState(() => busy = true);
     try {
       final data = await buildReport(s.meta.kind, s.scope!,
-          semester: s.semester, date: s.date);
+          semester: s.semester, date: s.date, detailed: det);
       switch (action) {
         case 'print':
           await printPdf(await data.pdf(), data.table.title);
         case 'share':
           await printPdf(await data.pdf(), data.table.title, share: true);
         case 'xlsx':
-          await exportTable(data.table, xlsx: true);
+          await shareReport(data, xlsx: true);
         case 'csv':
-          await exportTable(data.table, xlsx: false);
+          await shareReport(data, xlsx: false);
       }
     } catch (e) {
       if (mounted) toast(context, 'تعذر إنشاء التقرير: $e');
@@ -77,7 +79,25 @@ class _ReportsTabState extends State<ReportsTab> {
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Column(children: [
-          ReportPicker(onChanged: (s) => sel = s),
+          ReportPicker(onChanged: (s) {
+            final changed = sel?.meta.kind != s.meta.kind;
+            sel = s;
+            if (changed && mounted) setState(() {});
+          }),
+          if (sel?.meta.kind == RKind.detailedSheet) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonalIcon(
+                onPressed: () async {
+                  final o = await showDetailedOptions(context, det);
+                  if (o != null) setState(() => det = o);
+                },
+                icon: const Icon(Icons.tune),
+                label: const Text('تخصيص الترويسة والأعمدة ومستوى التفاصيل'),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           if (busy) const LinearProgressIndicator(),
           const SizedBox(height: 4),

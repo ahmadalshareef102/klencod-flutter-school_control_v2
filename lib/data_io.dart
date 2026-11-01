@@ -82,7 +82,7 @@ String _xml(String s) => s
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
 
-String _col(int i) {
+String colLetter(int i) {
   var s = '';
   var n = i + 1;
   while (n > 0) {
@@ -101,35 +101,60 @@ int _colIndex(String letters) {
   return n - 1;
 }
 
-/// ينشئ ملف xlsx باتجاه RTL؛ الصف الأول بخط عريض عند [boldFirstRow].
-Uint8List buildXlsx(String sheetName, List<List<String>> rows,
-    {bool boldFirstRow = true}) {
-  final sb = StringBuffer(
-      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-      '<sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>'
-      '<sheetData>');
-  for (var r = 0; r < rows.length; r++) {
-    sb.write('<row r="${r + 1}">');
-    for (var c = 0; c < rows[r].length; c++) {
-      final v = rows[r][c];
-      final ref = '${_col(c)}${r + 1}';
-      final style = (boldFirstRow && r == 0) ? ' s="1"' : '';
-      final n = double.tryParse(v);
-      if (n != null &&
-          v.trim().isNotEmpty &&
-          (!v.startsWith('0') || v == '0' || v.startsWith('0.'))) {
-        sb.write('<c r="$ref"$style><v>$v</v></c>');
-      } else {
-        sb.write('<c r="$ref" t="inlineStr"$style><is>'
-            '<t xml:space="preserve">${_xml(v)}</t></is></c>');
-      }
-    }
-    sb.write('</row>');
-  }
-  sb.write('</sheetData></worksheet>');
+/// خلية في ورقة xlsx غنية: نص أو رقم أو معادلة (مع قيمة مخزّنة للعرض).
+class XCell {
+  final String? t, f, str;
+  final double? n;
+  final int s;
+  const XCell.text(this.t, [this.s = 3])
+      : n = null, f = null, str = null;
+  const XCell.num(this.n, [this.s = 3])
+      : t = null, f = null, str = null;
+  const XCell.formula(this.f, {this.n, this.str, this.s = 3}) : t = null;
+}
 
+// أنماط الخلايا: 0 عادي، 1 عريض، 2 ترويسة، 3 جسم، 4 عنوان، 5 اسم،
+// 6 مجموعة، 7 توقيع، 8 معلومات، 9 صف الإجمالي.
+const _stylesXml =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    '<fonts count="6">'
+    '<font><sz val="11"/><name val="Calibri"/></font>'
+    '<font><b/><sz val="11"/><name val="Calibri"/></font>'
+    '<font><b/><sz val="9"/><name val="Calibri"/></font>'
+    '<font><sz val="9"/><name val="Calibri"/></font>'
+    '<font><b/><sz val="13"/><name val="Calibri"/></font>'
+    '<font><b/><sz val="10"/><name val="Calibri"/></font>'
+    '</fonts>'
+    '<fills count="4">'
+    '<fill><patternFill patternType="none"/></fill>'
+    '<fill><patternFill patternType="gray125"/></fill>'
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/><bgColor indexed="64"/></patternFill></fill>'
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFDBEAFE"/><bgColor indexed="64"/></patternFill></fill>'
+    '</fills>'
+    '<borders count="2">'
+    '<border><left/><right/><top/><bottom/><diagonal/></border>'
+    '<border><left style="thin"><color rgb="FF9CA3AF"/></left><right style="thin"><color rgb="FF9CA3AF"/></right>'
+    '<top style="thin"><color rgb="FF9CA3AF"/></top><bottom style="thin"><color rgb="FF9CA3AF"/></bottom><diagonal/></border>'
+    '</borders>'
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    '<cellXfs count="10">'
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+    '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+    '<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+    '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+    '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+    '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center" wrapText="1"/></xf>'
+    '<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+    '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top" wrapText="1"/></xf>'
+    '<xf numFmtId="0" fontId="5" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+    '<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+    '</cellXfs>'
+    '</styleSheet>';
+
+Uint8List _packXlsx(String sheetName, String sheetXml) {
   const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  final name = sheetName.length > 31 ? sheetName.substring(0, 31) : sheetName;
   final files = <String, String>{
     '[Content_Types].xml':
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -148,7 +173,7 @@ Uint8List buildXlsx(String sheetName, List<List<String>> rows,
     'xl/workbook.xml':
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<workbook xmlns="$ns" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            '<sheets><sheet name="${_xml(sheetName.length > 31 ? sheetName.substring(0, 31) : sheetName)}" sheetId="1" r:id="rId1"/></sheets>'
+            '<sheets><sheet name="${_xml(name)}" sheetId="1" r:id="rId1"/></sheets>'
             '</workbook>',
     'xl/_rels/workbook.xml.rels':
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -156,27 +181,101 @@ Uint8List buildXlsx(String sheetName, List<List<String>> rows,
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
             '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
             '</Relationships>',
-    'xl/styles.xml':
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            '<styleSheet xmlns="$ns">'
-            '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'
-            '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
-            '<fills count="2"><fill><patternFill patternType="none"/></fill>'
-            '<fill><patternFill patternType="gray125"/></fill></fills>'
-            '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
-            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-            '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
-            '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
-            '</styleSheet>',
-    'xl/worksheets/sheet1.xml': sb.toString(),
+    'xl/styles.xml': _stylesXml,
+    'xl/worksheets/sheet1.xml': sheetXml,
   };
   final arc = Archive();
-  files.forEach((name, content) {
+  files.forEach((n, content) {
     final b = utf8.encode(content);
-    arc.addFile(ArchiveFile(name, b.length, b));
+    arc.addFile(ArchiveFile(n, b.length, b));
   });
   final out = ZipEncoder().encode(arc);
   return Uint8List.fromList(out ?? <int>[]);
+}
+
+/// ينشئ ملف xlsx باتجاه RTL؛ الصف الأول بخط عريض عند [boldFirstRow].
+Uint8List buildXlsx(String sheetName, List<List<String>> rows,
+    {bool boldFirstRow = true}) {
+  final sb = StringBuffer(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+      '<sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>'
+      '<sheetData>');
+  for (var r = 0; r < rows.length; r++) {
+    sb.write('<row r="${r + 1}">');
+    for (var c = 0; c < rows[r].length; c++) {
+      final v = rows[r][c];
+      final ref = '${colLetter(c)}${r + 1}';
+      final style = (boldFirstRow && r == 0) ? ' s="1"' : '';
+      final n = double.tryParse(v);
+      if (n != null &&
+          v.trim().isNotEmpty &&
+          (!v.startsWith('0') || v == '0' || v.startsWith('0.'))) {
+        sb.write('<c r="$ref"$style><v>$v</v></c>');
+      } else {
+        sb.write('<c r="$ref" t="inlineStr"$style><is>'
+            '<t xml:space="preserve">${_xml(v)}</t></is></c>');
+      }
+    }
+    sb.write('</row>');
+  }
+  sb.write('</sheetData></worksheet>');
+  return _packXlsx(sheetName, sb.toString());
+}
+
+/// ورقة منسّقة: خلايا بأنماط، ودمج، ومعادلات حية، وعرض أعمدة، وطباعة أفقية.
+Uint8List buildXlsxSheet(String sheetName, List<List<XCell?>> rows,
+    {List<String> merges = const [],
+    Map<int, double> colWidths = const {},
+    Map<int, double> rowHeights = const {}}) {
+  final sb = StringBuffer(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+      '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
+      '<sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>');
+  if (colWidths.isNotEmpty) {
+    sb.write('<cols>');
+    final keys = colWidths.keys.toList()..sort();
+    for (final k in keys) {
+      sb.write('<col min="${k + 1}" max="${k + 1}" width="${colWidths[k]}" customWidth="1"/>');
+    }
+    sb.write('</cols>');
+  }
+  sb.write('<sheetData>');
+  for (var r = 0; r < rows.length; r++) {
+    final ht = rowHeights[r];
+    sb.write('<row r="${r + 1}"${ht == null ? '' : ' ht="$ht" customHeight="1"'}>');
+    for (var c = 0; c < rows[r].length; c++) {
+      final cell = rows[r][c];
+      if (cell == null) continue;
+      final ref = '${colLetter(c)}${r + 1}';
+      if (cell.f != null) {
+        if (cell.str != null) {
+          sb.write('<c r="$ref" s="${cell.s}" t="str"><f>${_xml(cell.f!)}</f><v>${_xml(cell.str!)}</v></c>');
+        } else {
+          sb.write('<c r="$ref" s="${cell.s}"><f>${_xml(cell.f!)}</f><v>${cell.n ?? 0}</v></c>');
+        }
+      } else if (cell.n != null) {
+        sb.write('<c r="$ref" s="${cell.s}"><v>${cell.n}</v></c>');
+      } else {
+        sb.write('<c r="$ref" s="${cell.s}" t="inlineStr"><is>'
+            '<t xml:space="preserve">${_xml(cell.t ?? '')}</t></is></c>');
+      }
+    }
+    sb.write('</row>');
+  }
+  sb.write('</sheetData>');
+  if (merges.isNotEmpty) {
+    sb.write('<mergeCells count="${merges.length}">');
+    for (final m in merges) {
+      sb.write('<mergeCell ref="$m"/>');
+    }
+    sb.write('</mergeCells>');
+  }
+  sb.write('<pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>'
+      '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
+      '</worksheet>');
+  return _packXlsx(sheetName, sb.toString());
 }
 
 String _unxml(String s) => s
